@@ -10,8 +10,15 @@ headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWeb
 
 def addIntro(f):
 	txt = ''' 
-专注流媒体,WebRTC，IOT领域的开发
-Jitsi项目中的Contributor,WebRTC Community论坛的版主
+<p align="center">
+  <img src="https://user-images.githubusercontent.com/5679180/79618120-0daffb80-80be-11ea-819e-d2b0fa904d07.gif" width="27px">
+  <br><br>
+  <samp>
+      👋 专注流媒体,WebRTC,IOT领域的开发.
+    <br>Jitsi项目中的Contributor,WebRTC Community论坛的版主<br>
+    <img src="https://i.imgur.com/kdKhgx6.gif" width="240px" align="center">
+ </samp>
+</p>
 ''' 
 	f.write(txt)
 
