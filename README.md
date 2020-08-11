@@ -23,11 +23,11 @@
 <td valign="top" width="50%">
 
 ### 我的博客
+- [五分钟搞定WebRTC视频录制](https://blog.csdn.net/qq_28880087/article/details/107771114)
+- [使用Jibri进行Jitsi Meet视频录制](https://blog.csdn.net/qq_28880087/article/details/107395039)
+- [5分钟搭建属于你的视频会议系统](https://blog.csdn.net/qq_28880087/article/details/107390403)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
-- [Prosody如何查询已经注册的用户](https://blog.csdn.net/qq_28880087/article/details/107875549)
-- [手动源码编译 Jicofo 启动报错 unable to find valid certification path to requested target](https://blog.csdn.net/qq_28880087/article/details/107875525)
-- [Can not invite participant – no bridge available” since last update](https://blog.csdn.net/qq_28880087/article/details/107875503)
-- [No certificate present in SSL/TLS configuration for https port 5284](https://blog.csdn.net/qq_28880087/article/details/107875459)
+- [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
