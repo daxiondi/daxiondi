@@ -18,11 +18,11 @@ Jitsi项目中的Contributor,WebRTC Community论坛的版主
 def addProjectInfo(f):
 	txt ='''
 ### WebRTC Community
-- [WebRTC Community](https://webrtcsample.ink/)WebRTC Community]	
-- [WebRTC-Client-Record](https://github.com/daxiondi/WebRTC-Client-Record)WebRTC-Client-Record
+- [WebRTC Community](https://webrtcsample.ink/)	
+- [WebRTC-Client-Record](https://github.com/daxiondi/WebRTC-Client-Record)
 
    
-[查看更多](ttps://github.com/daxiondi/)	 
+[查看更多](https://github.com/daxiondi/)	 
 	''' 
 	f.write(txt) 
 
