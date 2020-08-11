@@ -8,7 +8,7 @@
     <img src="https://i.imgur.com/kdKhgx6.gif" width="240px" align="center">
  </samp>
 </p>
-<table><tr>
+<table align="center"><tr>
 <td valign="top" width="50%">
 
 ### WebRTC Community
