@@ -1,16 +1,27 @@
-### Hi there 👋
+ 
+专注流媒体,WebRTC，IOT领域的开发
+Jitsi项目中的Contributor,WebRTC Community论坛的版主
+<table><tr>
+<td valign="top" width="50%">
 
-<!--
-**daxiondi/daxiondi** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+### WebRTC Community
+- [WebRTC Community](https://webrtcsample.ink/)WebRTC Community]	
+- [WebRTC-Client-Record](https://github.com/daxiondi/WebRTC-Client-Record)WebRTC-Client-Record
 
-Here are some ideas to get you started:
+   
+[查看更多](ttps://github.com/daxiondi/)	 
+	
+</td>
+<td valign="top" width="50%">
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+### 我的博客
+- [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
+- [Prosody如何查询已经注册的用户](https://blog.csdn.net/qq_28880087/article/details/107875549)
+- [手动源码编译 Jicofo 启动报错 unable to find valid certification path to requested target](https://blog.csdn.net/qq_28880087/article/details/107875525)
+- [Can not invite participant – no bridge available” since last update](https://blog.csdn.net/qq_28880087/article/details/107875503)
+- [No certificate present in SSL/TLS configuration for https port 5284](https://blog.csdn.net/qq_28880087/article/details/107875459)
+
+[查看更多](https://blog.csdn.net/qq_28880087/)
+
+</td>
+</tr></table>
