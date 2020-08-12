@@ -40,5 +40,5 @@ jobs:
         git config --global user.name "luoxin"
         git add -A
         git commit -m "Updated Readme" || exit 
-        git push -f
+        git push
 
