@@ -15,7 +15,9 @@
 - [WebRTC Community](https://webrtcsample.ink/)	
 - [WebRTC-Client-Record](https://github.com/daxiondi/WebRTC-Client-Record)
 - [WebRTC-Doc](https://github.com/daxiondi/webrtc-doc)
-
+- [Jitsi-videobridge](https://github.com/daxiondi/jitsi-videobridge)
+- [Jicofo](https://github.com/daxiondi/jicofo)
+- [Jitsi-meet](https://github.com/daxiondi/jitsi-meet)
    
 [查看更多](https://github.com/daxiondi/)	 
 	
@@ -28,6 +30,7 @@
 - [5分钟搭建属于你的视频会议系统](https://blog.csdn.net/qq_28880087/article/details/107390403)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
 - [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
+- [Jitsi设置websocket访问](https://blog.csdn.net/qq_28880087/article/details/107964160)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
