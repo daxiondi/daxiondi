@@ -28,7 +28,9 @@ def addProjectInfo(f):
 - [WebRTC Community](https://webrtcsample.ink/)	
 - [WebRTC-Client-Record](https://github.com/daxiondi/WebRTC-Client-Record)
 - [WebRTC-Doc](https://github.com/daxiondi/webrtc-doc)
-
+- [Jitsi-videobridge](https://github.com/daxiondi/jitsi-videobridge)
+- [Jicofo](https://github.com/daxiondi/jicofo)
+- [Jitsi-meet](https://github.com/daxiondi/jitsi-meet)
    
 [查看更多](https://github.com/daxiondi/)	 
 	''' 
@@ -43,7 +45,7 @@ def addBlogInfo(f):
 	f.write("\n### 我的博客\n")
 	cnt = 0
 	for i in html_data: 
-		if cnt >= 5:
+		if cnt >= 6:
 			break
 		title = i.xpath('./a/text()')[1].strip()
 		url = i.xpath('./a/@href')[0] 
