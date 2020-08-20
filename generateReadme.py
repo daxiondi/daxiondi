@@ -11,12 +11,20 @@ headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWeb
 def addIntro(f):
 	txt = ''' 
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/5679180/79618120-0daffb80-80be-11ea-819e-d2b0fa904d07.gif" width="27px">
-  <br><br>
+    <img src="https://github-readme-stats.vercel.app/api?username=daxiondi&show_icons=true&theme=dark&count_private=true"/>
+  <br><br/>
   <samp>
       👋 专注流媒体,WebRTC,IOT领域的开发.
     <br>Jitsi项目中的Contributor,WebRTC Community论坛的版主<br>
-    <img src="https://i.imgur.com/kdKhgx6.gif" width="240px" align="center">
+     
+ <h2><details align="center">
+    <summary><b>2020简单计划</b></summary>
+    B站出一门WebRTC的课程.<br/>
+    阅读Jitsi的源代码.<br/>
+    阅读WebRTC的源代码.
+    
+</details>
+</h2>
  </samp>
 </p>
 ''' 
