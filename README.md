@@ -38,7 +38,7 @@
 - [5分钟搭建属于你的视频会议系统](https://blog.csdn.net/qq_28880087/article/details/107390403)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
 - [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
-- [Jitsi设置websocket访问](https://blog.csdn.net/qq_28880087/article/details/107964160)
+- [webm进度条和修复问题](https://blog.csdn.net/qq_28880087/article/details/108454338)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
