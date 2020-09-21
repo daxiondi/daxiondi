@@ -38,7 +38,7 @@
 - [5分钟搭建属于你的视频会议系统](https://blog.csdn.net/qq_28880087/article/details/107390403)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
 - [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
-- [git常见问题记录](https://blog.csdn.net/qq_28880087/article/details/108578589)
+- [使用kurento视频在几秒后卡死记录](https://blog.csdn.net/qq_28880087/article/details/108700857)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
