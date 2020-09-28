@@ -35,10 +35,10 @@
 ### 我的博客
 - [五分钟搞定WebRTC视频录制](https://blog.csdn.net/qq_28880087/article/details/107771114)
 - [使用Jibri进行Jitsi Meet视频录制](https://blog.csdn.net/qq_28880087/article/details/107395039)
-- [5分钟搭建属于你的视频会议系统](https://blog.csdn.net/qq_28880087/article/details/107390403)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
 - [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
 - [WebRTC之Jitsi-meet实现语音转文字](https://blog.csdn.net/qq_28880087/article/details/108818991)
+- [Mac下查看已安装的jdk版本及其安装目录](https://blog.csdn.net/qq_28880087/article/details/108751393)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
