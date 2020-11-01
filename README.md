@@ -33,12 +33,6 @@
 <td valign="top" width="50%">
 
 ### 我的博客
-- [五分钟搞定WebRTC视频录制](https://blog.csdn.net/qq_28880087/article/details/107771114)
-- [使用Jibri进行Jitsi Meet视频录制](https://blog.csdn.net/qq_28880087/article/details/107395039)
-- [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
-- [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
-- [华为鲲鹏-使用docker构建多平台镜像](https://blog.csdn.net/qq_28880087/article/details/109271272)
-- [使用docker搭建opensips3.1](https://blog.csdn.net/qq_28880087/article/details/109270108)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
