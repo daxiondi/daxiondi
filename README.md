@@ -37,8 +37,8 @@
 - [使用Jibri进行Jitsi Meet视频录制](https://blog.csdn.net/qq_28880087/article/details/107395039)
 - [WebRTC之完整搭建Jitsi Meet指南](https://blog.csdn.net/qq_28880087/article/details/107026023)
 - [史上最全的WebRTC服务器技术选型分析](https://blog.csdn.net/qq_28880087/article/details/106604113)
+- [opensips2.48上使用postgres出现的问题](https://blog.csdn.net/qq_28880087/article/details/109532181)
 - [使用GDB调试opensip的core dump](https://blog.csdn.net/qq_28880087/article/details/109481567)
-- [鲲鹏上升级gcc版本安装GDB](https://blog.csdn.net/qq_28880087/article/details/109481328)
 
 [查看更多](https://blog.csdn.net/qq_28880087/)
 
