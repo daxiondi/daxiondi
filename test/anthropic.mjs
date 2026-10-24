@@ -1430,11 +1430,19 @@ const GOLDEN_SSE = [
       // 顺序被打乱、或混进一个上游不认识的 beta，两边会一起变而恒绿。
       // 这份字面量对着真实上游抓包核对过（2026-10-23，2.1.296 客户端），
       // 上游顺序变了必须人工改这里，那正是这条断言的意义。
+      // 序列里 per-turn-control / mid-conversation-tool-changes / effort
+      // 这三项是「降智防护」补齐字段后**必须**同现的 beta：
+      // 补了 output_config.effort 就必须带 effort-2025-11-24，
+      // 官方是成对补的（claude-code-betas.mjs:81）。
+      //
+      // 这三项在 2.1.310 的真实抓包里都出现过（见 docs/DEPLOY.md §5.9.7），
+      // 不是我们编的。
       const EXPECTED_BETA =
         'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,' +
         'thinking-token-count-2026-05-13,context-management-2025-06-27,' +
         'prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,' +
-        'extended-cache-ttl-2025-04-11'
+        'per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,' +
+        'effort-2025-11-24,extended-cache-ttl-2025-04-11'
       eq('黄金基准② anthropic-beta 完整序列', sent.headers['anthropic-beta'], EXPECTED_BETA)
       ok('黄金基准② anthropic-beta 非空', String(sent.headers['anthropic-beta'] || '').length > 0, sent.headers['anthropic-beta'])
       ok('黄金基准② anthropic-beta 含 extended-cache-ttl', String(sent.headers['anthropic-beta']).includes('extended-cache-ttl-2025-04-11'), sent.headers['anthropic-beta'])
@@ -1595,6 +1603,85 @@ const GOLDEN_SSE = [
   eq('连接被拒：返回 status 0', out.status, 0)
   eq('连接被拒：分类 network', out.classification.kind, ERROR_KIND.NETWORK)
   ok('连接被拒：带错误原文', String(out.classification.error || '').length > 0, out.classification.error)
+}
+
+// ─────────────── 降智防护字段与 beta 的配对关系 ───────────────
+//
+// 这是最容易回归的一处：补齐的字段（effort / thinking.display 等）
+// 每一个都对应一个 anthropic-beta token，官方是成对补的。
+// 如果哪天有人把 bodyBetas 改回用原始 body 计算，这里会立刻失败。
+//
+// 实测过的 bug：补了 output_config.effort 但 beta 里没有
+// effort-2025-11-24，上游要么拒绝，要么静默忽略 —— 补了白补，
+// 还多一个无 beta 保护的非官方形状字段，比不补更糟。
+{
+  const mk = (body) => {
+    const chunks = []
+    const fakeFetch = async (url, init) => {
+      chunks.push(JSON.parse(init.body))
+      return {
+        ok: true, status: 200,
+        headers: new Map([['content-type', 'application/json']]),
+        async text() { return JSON.stringify({ id: 'x', type: 'message', content: [] }) },
+      }
+    }
+    return { fakeFetch, chunks }
+  }
+  const upstream = new AnthropicUpstream({
+    baseUrl: 'https://example.invalid',
+    fetchImpl: async (url, init) => mk().fakeFetch(url, init),
+  })
+
+  // 场景 A：调用方什么都没给 → 我们补 thinking/effort，beta 必须同现
+  {
+    const sent = []
+    const up = new AnthropicUpstream({
+      baseUrl: 'https://example.invalid',
+      fetchImpl: async (url, init) => {
+        sent.push(init)
+        return {
+          ok: true, status: 200,
+          headers: new Map([['content-type', 'application/json']]),
+          async text() { return JSON.stringify({ id: 'x', type: 'message', content: [] }) },
+        }
+      },
+    })
+    await up.createMessage({
+      body: { model: 'claude-opus-5-5', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] },
+      headers: { authorization: 'Bearer T' },
+    })
+    const beta = String(sent[0]?.headers?.['anthropic-beta'] || '')
+    const body = JSON.parse(sent[0]?.body || '{}')
+    ok('补了 effort 字段', body.output_config?.effort != null, JSON.stringify(body.output_config))
+    ok('补齐 effort 后 beta 含 effort-2025-11-24', beta.includes('effort-2025-11-24'), beta)
+    ok('补了 thinking 字段', body.thinking != null, JSON.stringify(body.thinking))
+  }
+
+  // 场景 B：调用方显式给了全部字段 → 不应多加无关 beta
+  {
+    const sent = []
+    const up2 = new AnthropicUpstream({
+      baseUrl: 'https://example.invalid',
+      fetchImpl: async (url, init) => {
+        sent.push(init)
+        return {
+          ok: true, status: 200,
+          headers: new Map([['content-type', 'application/json']]),
+          async text() { return JSON.stringify({ id: 'x', type: 'message', content: [] }) },
+        }
+      },
+    })
+    await up2.createMessage({
+      body: {
+        model: 'claude-sonnet-4-5', max_tokens: 1024,
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+      headers: { authorization: 'Bearer T' },
+    })
+    const beta = String(sent[0]?.headers?.['anthropic-beta'] || '')
+    // sonnet-4-5 不支持 effort/adaptive，所以不应出现这两个 beta
+    ok('不支持的模型不补 effort beta', !beta.includes('effort-2025-11-24'), beta)
+  }
 }
 
 // ─────────────── 结果 ───────────────

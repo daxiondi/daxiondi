@@ -18,6 +18,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import zlib from 'node:zlib'
 
 import { collectResponsesStream } from './codex-convert.mjs'
+// 额度窗口模型（纯计算，无状态）：5h / 7d 的读数与阈值判定都来自这里，
+// Codex 侧只负责「按账号读读数」和「打满时 park 到 reset」。
+import { accountGate } from './quota-window.mjs'
 
 // ─────────────── 凭据 ───────────────
 
@@ -526,18 +529,30 @@ export const OVERLOAD_COOLDOWN_SECS = 5
 /** 本地 RPM 统计的滑窗（秒） */
 export const RPM_WINDOW_SECS = 60
 
+/**
+ * 额度 park 的兜底时长（秒）。
+ *
+ * 只在「上游明确说这个窗口已经用满、但没有给 reset 时间」时使用。
+ * 没有它，账号会被永久判死（读数一直停在上限、又算不出恢复时间）；
+ * 有了它，最坏情况也只是每 60 秒重新评估一次。
+ */
+export const QUOTA_PARK_FALLBACK_SECS = 60
+
 export class AccountScheduler {
   /**
    * @param {Array<object>} accounts 账号列表，每项至少含 id
    * @param {object} [opts]
    * @param {() => number} [opts.now] 注入时钟，便于测试
+   * @param {object|false|null} [opts.quota] 额度窗口读数来源，见 configureQuota
+   * @param {object|null} [opts.logger] 日志出口（pino 风格 warn/info）；null 表示静默
    */
-  constructor(accounts, { now = () => Date.now() } = {}) {
+  constructor(accounts, { now = () => Date.now(), quota = null, logger = console } = {}) {
     if (!Array.isArray(accounts) || accounts.length === 0) {
       throw new Error('scheduler requires at least one account')
     }
     this.accounts = accounts.map((a) => ({ ...a }))
     this.now = now
+    this.logger = logger || null
 
     // 两张亲和表：会话维度与线程维度
     this.sessionAffinity = new Map() // sessionId -> accountId
@@ -551,20 +566,95 @@ export class AccountScheduler {
     this.rpmSamples = new Map()      // accountId -> number[]
     // 冷却截止时间：accountId -> timestamp
     this.cooldownUntil = new Map()   // accountId -> number
+    // 额度 park：accountId -> { until, reason, level, parkedAt, fallback }
+    // 与 cooldownUntil 分开存：成因不同（额度 vs 失败）、解除条件不同
+    // （窗口 reset vs 固定时长），混在一起会丢掉成因，排查时看不出为什么被挡。
+    this.parkedUntil = new Map()
+
+    this.configureQuota(quota)
   }
 
   /**
-   * 账号是否当前可用：未冷却、未超并发上限、未超 RPM。
+   * 接线额度窗口读数。
+   *
+   * 两种读数来源都支持，二选一：
+   *   - `windows(accountId) => {'5h':Window|null,'7d':Window|null} | null`
+   *     由调度器自己用 accountGate 判阈值；
+   *   - `gate(accountId) => accountGate 结果 | null`
+   *     调用方已经判过（例如复用 QuotaStore.gate），调度器只读 allowed。
+   *
+   * 传函数而不是快照，是为了让每次 canTake 都看到当前读数：
+   * 窗口 reset 是惰性清零的，持有快照会让账号在 reset 之后仍被挡在门外。
+   * 读数来源缺失（没配置 / 账号从没请求过 / 无配额头）时一律放行 ——
+   * 额度是追加条件，不能把「没有数据」当成「额度用满」。
+   *
+   * @param {object|false|null} quota
+   * @param {Function} [quota.windows]
+   * @param {Function} [quota.gate]
+   * @param {number} [quota.warnPct] 预警阈值，缺省沿用 quota-window 的 85
+   * @param {number} [quota.stopPct] 熔断阈值，缺省沿用 quota-window 的 95
+   * @param {number} [quota.parkFallbackSecs] 兜底 park 时长
+   */
+  configureQuota(quota) {
+    const src = quota && typeof quota === 'object' ? quota : null
+    this.quotaWindows = typeof src?.windows === 'function' ? src.windows : null
+    this.quotaGateReader = typeof src?.gate === 'function' ? src.gate : null
+    this.quotaWarnPct = src?.warnPct
+    this.quotaStopPct = src?.stopPct
+    const fallback = Number(src?.parkFallbackSecs)
+    this.quotaParkFallbackSecs = Number.isFinite(fallback) && fallback > 0
+      ? fallback
+      : QUOTA_PARK_FALLBACK_SECS
+    // 没有读数来源时整条额度链路关闭，canTake 行为与旧版完全一致
+    this.quotaEnabled = Boolean(this.quotaWindows || this.quotaGateReader)
+    return this
+  }
+
+  /** 统一的日志出口。logger 为 null 时静默（测试里常用）。 */
+  log(level, fields, message) {
+    const logger = this.logger
+    if (!logger) return
+    const fn = typeof logger[level] === 'function' ? logger[level] : logger.log
+    if (typeof fn !== 'function') return
+    fn.call(logger, fields, `[codex] ${message}`)
+  }
+
+  /**
+   * 账号是否当前可用：未冷却、未 park、未超并发上限、未超 RPM、额度窗口未打满。
    *
    * max_concurrency 与 rpm 为 0 或未设置时视为不限。
    * RPM 统计用本地滑窗而不是上游计数，因此它只反映本实例的发送量；
    * 多实例共享同一账号时这个数字会偏小，属于已知局限。
+   *
+   * 判定顺序有讲究：**冷却与 park 在最前**。两者都是「已经知道不行」的结论，
+   * 先判它们可以避免为必然被拒的账号做额度读取与 RPM 滑窗整理。
+   * 额度判定放在最后，是纯粹的追加条件：前面三条通过之后才会被读到。
    */
   canTake(account) {
     const t = this.now()
 
     const until = this.cooldownUntil.get(account.id)
     if (until != null && t < until) return false
+
+    // 额度 park：命中说明这个号在上一个窗口里已经打满，等到 reset 再放出来。
+    //
+    // 但 park 之后**必须复查一次读数**，不能只等 reset 时间：
+    //   · 上游给的 reset 可能偏保守（我们按 95% 熔断，实际到 95% 就停，
+    //     而 reset 是按 100% 用完估算的）
+    //   · 没有 reset 时钟时退到 60s 兜底，这段时间里额度可能已经回落
+    //   · 多个共享同一账号的实例，配额可能被别处释放
+    //
+    // 实测过的问题：两号都打满 → 都被 park → 把其中一个降到 10% 后
+    // 仍然报 quota_exhausted，那个号被白白挡住一小时。
+    // 所以 park 命中后先复查读数，读数已恢复就解除 park 并放行。
+    if (this.isQuotaParked(account.id, t)) {
+      const recheck = this.quotaVerdict(account.id)
+      if (!recheck || recheck.allowed === false) return false
+      // 读数显示已恢复：解除 park（记录一条日志，便于观察提前恢复的频率）
+      this.unparkAccount(account.id)
+      this.log('info', { account: account.id, reason: 'quota_recovered' },
+        'quota park lifted early: reading below threshold')
+    }
 
     const maxConcurrency = Number(account.max_concurrency || 0)
     if (maxConcurrency > 0) {
@@ -581,7 +671,141 @@ export class AccountScheduler {
       if (recent.length >= rpm) return false
     }
 
+    // 额度窗口：读数是函数，每次现取，避免持有过期快照。
+    // 无数据 / 未接线时 quotaVerdict 返回 null，这里直接放行。
+    const verdict = this.quotaVerdict(account.id)
+    if (verdict && verdict.allowed === false) {
+      // 记下 park 直到窗口 reset。上游没给 reset 时钟时用兜底时长，
+      // 否则这个号会被「读数停在上限且算不出恢复时间」永久挡在门外。
+      this.parkAccount(account.id, {
+        until: verdict.resumeAt,
+        reason: verdict.reason || 'quota_exhausted',
+        level: verdict.level || 'stop',
+      })
+      return false
+    }
+
     return true
+  }
+
+  /**
+   * 取某账号当前的额度判定。
+   *
+   * 返回 null 表示「没有可用的额度依据」，调用方必须按放行处理：
+   *   - 没接线（quotaEnabled=false）
+   *   - 账号从没收到过配额头
+   *   - 读数来源本身出错
+   *
+   * 读数来源抛错不能让请求路径崩掉 —— 额度是旁路信号，上游拒绝才是权威。
+   * 出错时打一条 WARN 后放行，让上游的 429 来做决定，冷却仍然兜底。
+   *
+   * @returns {null|{allowed:boolean, reason?:string, resumeAt?:number|null, level?:string}}
+   */
+  quotaVerdict(accountId) {
+    if (!this.quotaEnabled) return null
+    try {
+      if (this.quotaGateReader) {
+        const raw = this.quotaGateReader(accountId)
+        if (!raw || typeof raw !== 'object') return null
+        return {
+          allowed: raw.allowed !== false,
+          reason: raw.reason || null,
+          resumeAt: Number.isFinite(Number(raw.resumeAt)) ? Number(raw.resumeAt) : null,
+          level: raw.level || null,
+        }
+      }
+      const windows = this.quotaWindows(accountId)
+      if (!windows || typeof windows !== 'object') return null
+      const gate = accountGate(windows, {
+        warnPct: this.quotaWarnPct,
+        stopPct: this.quotaStopPct,
+        now: this.now(),
+      })
+      // 只有 stop 才拦；warn 放行（与 accountGate 的 degraded 语义一致）
+      return {
+        allowed: gate.allowed !== false,
+        reason: gate.reason,
+        resumeAt: Number.isFinite(Number(gate.resumeAt)) ? Number(gate.resumeAt) : null,
+        level: gate.level,
+        limited: gate.limited,
+      }
+    } catch (error) {
+      this.log('warn', { account: accountId, error: String(error?.message || error) },
+        'quota reading failed, allowing the account')
+      return null
+    }
+  }
+
+  /**
+   * 把账号 park 到某个时间点，之后自动解除（不需要人工干预）。
+   *
+   * @param {string} accountId
+   * @param {object} [opts]
+   * @param {number|null} [opts.until] 解除时间（epoch ms）；缺失或已过期时用兜底时长
+   * @param {string} [opts.reason] 成因，透出到日志与 snapshot
+   * @param {string} [opts.level]
+   * @returns {number} 实际 park 秒数
+   */
+  parkAccount(accountId, { until = null, reason = 'quota_exhausted', level = 'stop' } = {}) {
+    const t = this.now()
+    const target = Number(until)
+    // reset 时间缺失 / 已过期 / 非有限值 → 兜底。已过期的 reset 不能用来解除 park，
+    // 否则刚 park 就立刻解，等于没有 park。
+    const useFallback = !Number.isFinite(target) || target <= t
+    const resumeAt = useFallback ? t + this.quotaParkFallbackSecs * 1000 : target
+    const secs = Math.max(1, Math.ceil((resumeAt - t) / 1000))
+    this.parkedUntil.set(accountId, {
+      until: resumeAt,
+      reason,
+      level,
+      parkedAt: t,
+      fallback: useFallback,
+    })
+    // 日志要能直接看出「这个号被 park 多久」，排障时不需要再算时间差
+    this.log('warn', {
+      account: accountId,
+      reason,
+      level,
+      park_secs: secs,
+      resume_at: new Date(resumeAt).toISOString(),
+      fallback: useFallback,
+    }, `account paused for quota: ${secs}s reason=${reason}`)
+    return secs
+  }
+
+  /** 手动解除 park（运维/测试用；正常运行靠到期自动解除）。 */
+  unparkAccount(accountId) {
+    return this.parkedUntil.delete(accountId)
+  }
+
+  /**
+   * 账号是否处于额度 park 中。
+   *
+   * 到期的 park **就地清掉**并返回 false：解除条件是「时间到了」，
+   * 不需要任何人来重置状态，这正是 park 是软约束的含义。
+   */
+  isQuotaParked(accountId, now = this.now()) {
+    const park = this.parkedUntil.get(accountId)
+    if (!park) return false
+    if (now < park.until) return true
+    this.parkedUntil.delete(accountId)
+    this.log('info', {
+      account: accountId,
+      reason: park.reason,
+      parked_secs: Math.max(0, Math.round((now - park.parkedAt) / 1000)),
+    }, 'account quota pause lifted')
+    return false
+  }
+
+  /** 当前所有 park 里最早解除的时间（epoch ms），没有 park 时返回 null。 */
+  soonestUnparkAt() {
+    let best = null
+    const t = this.now()
+    for (const [accountId, park] of this.parkedUntil) {
+      if (!this.isQuotaParked(accountId, t)) continue
+      if (best == null || park.until < best) best = park.until
+    }
+    return best
   }
 
   /**
@@ -634,8 +858,25 @@ export class AccountScheduler {
       }
     }
 
+    // 一个都选不出来。错误码要能区分成因：
+    //   - 额度 park 挡下了所有候选 → quota_exhausted + retryAt（窗口 reset）
+    //   - 其它（冷却/并发/RPM）→ 保持原样 all_rejected，对外语义不变
+    // 区分开的价值：客户端能拿到一个「确实几点几分恢复」的退避依据，
+    // 而不是把额度问题误读成普通的全账号失败。
     const err = new Error('no account can take this request')
     err.code = this.accounts.length === 0 ? 'no_candidates' : 'all_rejected'
+    if (this.parkedUntil.size > 0) {
+      const retryAt = this.soonestUnparkAt()
+      const parkedAll = this.accounts.every((acc) => this.isQuotaParked(acc.id))
+      if (parkedAll) {
+        err.code = 'quota_exhausted'
+        err.retryAt = retryAt
+        const secs = retryAt == null ? null : Math.max(1, Math.ceil((retryAt - this.now()) / 1000))
+        err.message = secs == null
+          ? 'all accounts are parked on exhausted quota windows'
+          : `all accounts are parked on exhausted quota windows; retry in ${secs}s`
+      }
+    }
     throw err
   }
 
@@ -761,10 +1002,19 @@ export class AccountScheduler {
     for (const accId of this.inflight.keys()) {
       if (!ids.has(accId)) this.inflight.delete(accId)
     }
+    // park 记录同样要按移除清理：残留项会让 select 的「全 park」判定误命中，
+    // 把一个已不存在的账号算进 retryAt。
+    for (const accId of this.parkedUntil.keys()) {
+      if (!ids.has(accId)) this.parkedUntil.delete(accId)
+    }
     this.accounts = accounts.map((a) => ({ ...a }))
   }
 
-  /** 统计快照，供健康检查与面板展示（只读，不改变任何调度状态） */
+  /**
+   * 统计快照，供健康检查与面板展示（只读，不改变任何调度状态）。
+   *
+   * 字段集合是面板的读取契约，额度信息不放这里：详见 quotaSnapshot()。
+   */
   snapshot() {
     return {
       accounts: this.accounts.map((a) => ({
@@ -779,6 +1029,36 @@ export class AccountScheduler {
       })),
       session_affinity: this.sessionAffinity.size,
       thread_affinity: this.threadAffinity.size,
+    }
+  }
+
+  /**
+   * 额度 park 快照（只读）。
+   *
+   * 与 snapshot() 分开是刻意的：哪个号被额度挡下、还要挡多久、成因是什么，
+   * 是排障时最常查的一组数据，但它的字段集合与调度计数完全不同，
+   * 混进 snapshot 只会让两边都更容易被误改。
+   */
+  quotaSnapshot() {
+    const t = this.now()
+    const parked = []
+    for (const [accountId, park] of this.parkedUntil) {
+      if (t >= park.until) continue
+      parked.push({
+        account_id: accountId,
+        reason: park.reason,
+        level: park.level,
+        secs_left: Math.max(0, Math.ceil((park.until - t) / 1000)),
+        parked_at: park.parkedAt,
+        resume_at: park.until,
+        fallback: park.fallback === true,
+      })
+    }
+    parked.sort((a, b) => (a.secs_left - b.secs_left) || a.account_id.localeCompare(b.account_id))
+    return {
+      enabled: this.quotaEnabled,
+      parked,
+      soonest_unpark_at: parked.length ? parked[0].resume_at : null,
     }
   }
 }
@@ -1105,6 +1385,12 @@ function cooldownRemainingSecs(scheduler, accountId) {
  * 返回值里的 accountId 就是调用方 release 需要的键；失败且没有可用账号时为 null
  * （此时没有任何占坑残留，调用方无需释放）。
  *
+ * `onResult({accountId, status, headers})` 在**每一个**上游响应之后回调一次，
+ * 包括中间被换掉的那些账号。额度窗口读数就挂在这条钩子上：x-codex-primary /
+ * secondary 的用量与 reset 时间只在响应头里，换号重试时如果不记录中间账号的
+ * 那一份，被换掉的号就会带着旧读数继续参与调度。回调抛错一律吞掉，
+ * 观察数据的采集不该影响请求本身。
+ *
  * 全部失败时的对外状态（这是限流语义的唯一出口，改之前想清楚）：
  *   - 本次请求里有账号被上游 429 打回冷却 → 429 + retryAfter
  *     （取所有 429 账号冷却剩余秒数的**最小值**：最早恢复的那个账号一可用，
@@ -1131,6 +1417,7 @@ export async function executeCodexRequest({
   maxAttempts = 3,
   signal,
   stream,
+  onResult = null,
 }) {
   // 流式与否用同一个判断走完全链路。注意这个标志只影响**返回给调用方的形态**：
   // 上游线协议恒为 stream:true（body 由 buildOutboundBody 统一设），
@@ -1218,6 +1505,9 @@ export async function executeCodexRequest({
       throw error
     }
     last = res
+    // 每个上游响应都回调一次：额度读数（x-codex-*-used-percent / reset-at）
+    // 只在这里拿得到，换号重试的中间账号同样要记。
+    notifyResult(onResult, { accountId: acc.id, status: res.status, headers: res.headers })
 
     // 成功：提交亲和，并保留占坑给调用方（见函数注释）
     if (res.status >= 200 && res.status < 300) {
@@ -1270,10 +1560,22 @@ function exhaustedResult({ e = null, rateLimited = [], scheduler, attempts = 0, 
   const retryAfter = remaining.length ? Math.min(...remaining) : null
   const limited = retryAfter != null
 
-  const code = limited ? 'rate_limited' : (e?.code || 'all_rejected')
+  // 额度 park 造成的「无可用号」单独成一档。
+  // 它和限流不是一回事：限流是上游已经拒绝过，我们的选择是退避重试；
+  // 额度 park 是上游早就告诉过这个窗口满了，我们是主动不去撞。
+  // 对外用 503 + quota_exhausted（与官方的 pool 语义一致），
+  // 但额外给出 retry_after —— 窗口 reset 是确定的时刻，客户端没有理由盲目重试。
+  const quotaRetryAt = !limited && Number.isFinite(Number(e?.retryAt)) ? Number(e.retryAt) : null
+  const quotaSecs = quotaRetryAt == null
+    ? null
+    : Math.max(1, Math.ceil((quotaRetryAt - nowOf(scheduler)) / 1000))
+  const quotaParked = quotaSecs != null
+
+  const code = limited ? 'rate_limited' : (quotaParked ? 'quota_exhausted' : (e?.code || 'all_rejected'))
   const message = limited
     ? 'all accounts are rate limited by upstream'
     : (e?.message || 'all accounts failed')
+  const effectiveRetryAfter = limited ? retryAfter : quotaSecs
 
   return {
     status: limited ? 429 : 503,
@@ -1285,12 +1587,32 @@ function exhaustedResult({ e = null, rateLimited = [], scheduler, attempts = 0, 
         type: limited ? 'rate_limit_error' : 'service_unavailable_error',
         code,
         message,
-        ...(limited ? { retry_after: retryAfter } : {}),
+        ...(effectiveRetryAfter != null ? { retry_after: effectiveRetryAfter } : {}),
       },
     },
-    retryAfter,
+    retryAfter: effectiveRetryAfter,
     accountId: null,
     attempts,
     streamed: false,
+  }
+}
+
+/** 调度器时钟（缺省回落到系统时钟），避免每个调用点各写一份。 */
+function nowOf(scheduler) {
+  return typeof scheduler?.now === 'function' ? scheduler.now() : Date.now()
+}
+
+/**
+ * 上游响应回调的护栏。
+ *
+ * 采集（额度读数）属于旁路，任何异常都不能影响请求本身：
+ * 一个写坏的观察者让正常请求失败，是最难排查的一类故障。
+ */
+function notifyResult(onResult, payload) {
+  if (typeof onResult !== 'function') return
+  try {
+    onResult(payload)
+  } catch {
+    // 静默：观察数据的采集失败不该改变请求结果
   }
 }

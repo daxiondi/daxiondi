@@ -34,6 +34,11 @@
 import { randomUUID } from 'node:crypto'
 import { AccountScheduler, executeCodexRequest, CodexUpstream } from './codex.mjs'
 import { DEFAULT_CHATGPT_BASE } from './codex.mjs'
+// 入站模型名重写：必须在任何按模型名分流的判定之前调用，见模块注释。
+import { applyCodexModelMapping } from './codex-model-mapping.mjs'
+// 额度窗口存储：按账号保存 5h / 7d 读数，reset 后惰性清零。
+// Codex 侧只读复用（Claude 通道的 scheduler 用的是同一个类的另一个实例）。
+import { QuotaStore } from './quota-store.mjs'
 import { loadCredentials, CredentialManager, defaultLogger } from './codex-credentials.mjs'
 import {
   chatToResponses, responsesEventsToChatSse, collectResponsesStream,
@@ -49,7 +54,13 @@ import {
 /** 默认模型：上游 /models 实测存在（见 FINDINGS.md） */
 export const DEFAULT_CODEX_MODEL = 'gpt-6-astra'
 
-/** 上游可用模型（与 config.mjs 的 codex_models 同一份来源） */
+/**
+ * 对外列出的模型（与 config.mjs 的 codex_models 同一份来源）。
+ *
+ * 其中 `codex-auto-review` 不是上游认识的真实 id，而是入站别名：
+ * 请求进来时由 codex-model-mapping.mjs 重写成 `gpt-6-luna` 再发上游。
+ * 仍然列在 /v1/models 里是刻意的 —— 客户端要能发现这个别名存在。
+ */
 export const CODEX_MODELS = Object.freeze([
   'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-reserve', 'gpt-6-luna',
   'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'codex-auto-review',
@@ -141,6 +152,8 @@ export function openAiError(status, message, { type = 'invalid_request_error', c
  * @param {string[]|object} [opts.imageModels] 启用的图像模型（数组或 {id:{enabled}}），缺省取 codex_image_models
  * @param {number} [opts.imageTimeoutMs]  单次生图请求超时，缺省 600s
  * @param {number} [opts.imageDeadlineMs] 全池无可用号时的等待上限，缺省 30s
+ * @param {object|false} [opts.quota]  额度窗口门禁：false 关闭；对象可含
+ *        { enabled, warnPct, stopPct, now }。缺省走 quota-window 的 85/95 阈值
  */
 export function createCodexHandler(opts = {}) {
   const cfg = validateCodexConfig({
@@ -164,7 +177,29 @@ export function createCodexHandler(opts = {}) {
     logger,
     path: loaded.path,
   })
-  const scheduler = new AccountScheduler(loaded.accounts)
+  // 额度窗口读数。Codex 与 Claude 共用 quota-store / quota-window 这一套模型：
+  // 上游的 x-codex-primary|secondary-used-percent + reset-at 与 Anthropic 的
+  // unified 头被解析成同一形状的 5h / 7d 窗口，阈值判定也走同一个 accountGate。
+  // 关掉的方式是传 quota: false（观察模式也可以传 { enabled: false }，
+  // 头仍然记录、但不拦）。
+  const quotaCfg = opts.quota && typeof opts.quota === 'object' ? opts.quota : {}
+  const quotaEnabled = opts.quota !== false && quotaCfg.enabled !== false
+  const quotaStore = opts.quota === false
+    ? null
+    : new QuotaStore({
+      enabled: quotaEnabled,
+      warnPct: quotaCfg.warnPct,
+      stopPct: quotaCfg.stopPct,
+      now: quotaCfg.now,
+    })
+
+  // 传的是读数函数而不是快照：窗口 reset 是惰性清零的，持有快照会让账号在
+  // reset 之后仍被挡在门外。QuotaStore.gate 每次调用都按当前时间重算。
+  const scheduler = new AccountScheduler(loaded.accounts, {
+    ...(quotaCfg.now ? { now: quotaCfg.now } : {}),
+    logger,
+    quota: quotaStore ? { gate: (accountId) => quotaStore.gate(accountId) } : null,
+  })
   const upstream = new CodexUpstream({
     baseUrl: cfg.codex_base_url,
     fetchImpl: opts.fetchImpl,
@@ -204,6 +239,14 @@ export function createCodexHandler(opts = {}) {
       incomingHeaders,
       maxAttempts,
       signal,
+      // 每个上游响应都把配额头交给 QuotaStore：用量与 reset 时间只在响应头里，
+      // 换号重试时被换掉的账号也要记，否则它带着旧读数继续参与调度。
+      onResult: quotaStore
+        ? ({ accountId, headers }) => {
+          if (!accountId || !headers) return
+          quotaStore.recordHeaders(accountId, headers)
+        }
+        : null,
     })
 
     for (const acc of scheduler.accounts) {
@@ -220,7 +263,11 @@ export function createCodexHandler(opts = {}) {
    * 不先拦住的话会落进下面的 5xx 分支，被改写成 502 upstream_error，
    * 与 HTTP 状态 503 互相矛盾。
    */
-  const SCHEDULER_ERROR_CODES = new Set(['all_rejected', 'no_candidates', 'exhausted', 'no_account'])
+  const SCHEDULER_ERROR_CODES = new Set([
+    'all_rejected', 'no_candidates', 'exhausted', 'no_account',
+    // 额度 park 挡住全部候选：503 + quota_exhausted，与官方的号池语义一致
+    'quota_exhausted',
+  ])
 
   /** 把上游错误状态码翻译成客户端能理解的 OpenAI 错误 */
   function upstreamErrorBody(result) {
@@ -229,6 +276,9 @@ export function createCodexHandler(opts = {}) {
       || JSON.stringify(result.json || {}).slice(0, 500)
     const code = result.json?.error?.code
     if (SCHEDULER_ERROR_CODES.has(code)) {
+      // 额度 park 挡住全部候选时 retryAfter 有值（窗口 reset 的秒数）：
+      // 这个数字是确定的恢复时刻，必须透给客户端，否则它只能盲目重试。
+      const retryAfter = Number.isFinite(result.retryAfter) ? result.retryAfter : null
       return {
         error: {
           message: result.json.error.message || 'no account can serve this request',
@@ -236,6 +286,7 @@ export function createCodexHandler(opts = {}) {
           param: null,
           code,
           status: 503,
+          ...(retryAfter != null ? { retry_after: retryAfter } : {}),
         },
       }
     }
@@ -280,7 +331,9 @@ export function createCodexHandler(opts = {}) {
    */
   function upstreamErrorHeaders(result) {
     const h = upstreamHeadersFor(result)
-    if (result.status === 429 && Number.isFinite(result.retryAfter)) {
+    // 429（上游限流）与 503（额度 park 到窗口 reset）都带确定的恢复时长。
+    // 403/401 这类没有退避语义的状态不带，避免客户端对一个永久失败反复重试。
+    if ((result.status === 429 || result.status === 503) && Number.isFinite(result.retryAfter)) {
       h['Retry-After'] = String(result.retryAfter)
     }
     return h
@@ -428,7 +481,16 @@ export function createCodexHandler(opts = {}) {
     if (!guardCredential(res)) return
 
     const wantsStream = payload.stream !== false
-    const model = payload.model || cfg.codex_default_model
+    // 入站模型名重写必须发生在任何按模型名分流的判定之前：
+    // `codex-auto-review` 是别名，直发上游会 400 并白白占掉一个账号的坑位。
+    const requestedModel = payload.model || cfg.codex_default_model
+    const model = applyCodexModelMapping(requestedModel)
+    if (model !== requestedModel) {
+      logger.info(
+        { route: '/v1/responses', requested_model: requestedModel, upstream_model: model },
+        'codex inbound model rewritten',
+      )
+    }
     const body = { ...payload, model }
 
     // Responses 请求体里也可能带上游不认的采样字段（很多客户端把 Chat 的字段
@@ -507,7 +569,15 @@ export function createCodexHandler(opts = {}) {
     if (!guardCredential(res)) return
 
     const wantsStream = chat.stream === true
-    const model = chat.model || cfg.codex_default_model
+    // 同 Responses 路由：先重写别名，再进转换与调度
+    const requestedModel = chat.model || cfg.codex_default_model
+    const model = applyCodexModelMapping(requestedModel)
+    if (model !== requestedModel) {
+      logger.info(
+        { route: '/v1/chat/completions', requested_model: requestedModel, upstream_model: model },
+        'codex inbound model rewritten',
+      )
+    }
     const converted = chatToResponses({ ...chat, model })
     // 丢弃的采样字段要对外可见：响应头给客户端，WARN 日志给运维侧。
     const droppedHeaders = announceDropped(converted.dropped, { model, route: '/v1/chat/completions' })
@@ -641,6 +711,11 @@ export function createCodexHandler(opts = {}) {
       return
     }
 
+    // 生图响应同样带 x-codex-* 用量头，一样要进额度存储：
+    // 生图消耗的是同一份额度，漏记会让 5h 窗口的读数偏乐观。
+    if (quotaStore && result.accountId && result.headers) {
+      quotaStore.recordHeaders(result.accountId, result.headers)
+    }
     logger.info(
       { route: `images.${kind}`, status: result.status, attempts: result.attempts, session: sessionId },
       'codex images request',
@@ -702,6 +777,9 @@ export function createCodexHandler(opts = {}) {
       can_refresh: manager.canRefresh,
       accounts: snap,
       scheduler: scheduler.snapshot(),
+      // 额度窗口快照：哪个号被打满、park 多久、几点恢复，都在这里看
+      quota: quotaStore ? quotaStore.snapshot() : { enabled: false, accounts: [] },
+      quota_park: scheduler.quotaSnapshot(),
     })
   }
 
@@ -774,6 +852,7 @@ export function createCodexHandler(opts = {}) {
     scheduler,
     manager,
     upstream,
+    quotaStore,
     config: cfg,
     accounts: loaded.accounts,
     imageAccounts,

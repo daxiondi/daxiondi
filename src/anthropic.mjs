@@ -47,8 +47,10 @@ import {
   mergeOfficialExtraBetas,
   resolveUpstreamProtocol,
 } from './identity.mjs'
-import { joinBetas, claudeCodeMimicryBetas } from './betas.mjs'
+import { joinBetas, claudeCodeMimicryBetas, withRequestProtocolBetas } from './betas.mjs'
 import { sanitizeAnthropicBody } from './sanitize.mjs'
+import { applyDegradationGuards } from './thinking-policy.mjs'
+import { normalizeCallerUa } from './official-ua.mjs'
 
 // ─────────────────── 常量 ───────────────────
 
@@ -174,6 +176,10 @@ function toBetaArray(value) {
  *   - 'api_key'      → `x-api-key: <token>`，控制台 key 的做法
  * 两者互斥：同时发两个会被上游按不同的鉴权路径处理，行为不确定。
  *
+ * `callerUserAgent`：调用方原始 UA。官方族（`claude-cli/<x.y.z>`）原样保留，
+ * 其余（`claude-desktop` / `agent-sdk` / `claude-vscode` / `local-agent` 等）
+ * 一律回落官方 UA —— 第三方入口标识出站等于自证客户端身份，见 official-ua.mjs。
+ *
  * 这里**不设** content-length / content-encoding：两者由 encodeBody 的结果决定。
  */
 export function buildOutboundHeaders({
@@ -183,6 +189,7 @@ export function buildOutboundHeaders({
   accept = ACCEPT_SSE,
   env = process.env,
   extra = {},
+  callerUserAgent = '',
 } = {}) {
   const headers = {}
   if (authScheme === 'api_key') {
@@ -193,7 +200,9 @@ export function buildOutboundHeaders({
   headers['anthropic-version'] = ANTHROPIC_VERSION
   const betaHeader = joinBetas(betas)
   if (betaHeader) headers['anthropic-beta'] = betaHeader
-  headers['user-agent'] = officialCliUserAgent(env)
+  // 调用方 UA 只做一次归一化：官方族保留，非官方族换成本层的官方 UA。
+  // 回落值取自 env，与 billing 的 cc_version 用的是同一个版本号，不会自相矛盾。
+  headers['user-agent'] = normalizeCallerUa(callerUserAgent, { officialUa: officialCliUserAgent(env) })
   headers['x-app'] = claudeCodeAppHeader(env)
   headers['content-type'] = 'application/json'
   headers.accept = accept
@@ -717,10 +726,23 @@ export class AnthropicUpstream {
       throw new Error(`unknown mode: ${resolvedMode}`)
     }
 
-    // 1. body：摘内部字段 → 定线协议 stream 标志
-    const internal = stripInternalFields(body)
-    const bodyBetas = toBetaArray(body?.betas ?? body?.__betas__)
+    // 1. body：摘内部字段 → 补降级防护字段 → 定线协议 stream 标志
+    //    补齐必须在清洗之后（先补会被洗掉），且在 stream 标志之前（不影响线协议）。
+    const internal = applyDegradationGuards(stripInternalFields(body))
     const wireBody = applyStreamFlag(internal, resolvedMode)
+    // beta 必须基于**补齐后的** wireBody 计算，不能用原始 body。
+    //
+    // 原因：降智防护会在出站前补 output_config.effort / thinking.display 等字段，
+    // 这些字段每一个都对应一个 anthropic-beta token。官方是**成对**补的
+    // （claude-code-betas.mjs:81 把 effort 与 effort-2025-11-24 一起加）。
+    //
+    // 之前这里用原始 body 算，结果是「补了 effort 但没带对应 beta」，
+    // 上游要么拒绝，要么静默忽略 effort —— 等于补了白补，还多一个
+    // 无 beta 保护的非官方形状字段，比不补更糟。
+    const bodyBetas = withRequestProtocolBetas(
+      toBetaArray(body?.betas ?? body?.__betas__),
+      wireBody,
+    )
 
     // 2. 头：调用方给的头为准，缺的用身份模块补齐；beta 从 body 折进头
     const callerHeaders = stripForbiddenHeaders(headers)
@@ -737,6 +759,12 @@ export class AnthropicUpstream {
     })
     // 调用方的头覆盖默认值：允许显式指定 UA 版本等，但保留键仍被剔除
     const requestHeaders = stripForbiddenHeaders({ ...built, ...callerHeaders, 'anthropic-beta': joinBetas(betaList) })
+    // 最后一道 UA 闸：调用方可以直接在 headers 里带 UA，覆盖上面的默认值。
+    // 官方族放行，claude-desktop / agent-sdk 这类入口标识在这里再拦一次，
+    // 避免绕过 buildOutboundHeaders 的直连调用把指纹带出去。
+    requestHeaders['user-agent'] = normalizeCallerUa(requestHeaders['user-agent'], {
+      officialUa: officialCliUserAgent(env),
+    })
 
     // 3. body 编码：编码结果决定 content-encoding（唯一真相）
     const encoded = encodeBody(wireBody, {

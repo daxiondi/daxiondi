@@ -40,6 +40,8 @@ const TESTS = [
   { name: 'codex-upstream', file: 'codex-upstream.mjs', smoke: false },
   { name: 'codex-sse', file: 'codex-sse.mjs', smoke: false },
   { name: 'codex-scheduler', file: 'codex-scheduler.mjs', smoke: false },
+  // 入站模型名重写 + 额度窗口接线：纯函数 + 假 fetch，不碰网络
+  { name: 'codex-model-mapping', file: 'codex-model-mapping.mjs', smoke: false },
   { name: 'smoke-server', file: 'smoke-server.mjs', smoke: true },
   // messages / system 的缓存断点布局：纯函数，不碰网络
   { name: 'cache-breakpoints', file: 'cache-breakpoints.mjs', smoke: false },
@@ -74,6 +76,12 @@ const TESTS = [
   { name: 'hardware-spoof', file: 'hardware-spoof.mjs', smoke: false },
   { name: 'cch-vs-official', file: 'cch-vs-official.mjs', smoke: false },
   { name: 'sanitize', file: 'sanitize.mjs', smoke: false },
+  // 出站 metadata.user_id 注入（敏感键过滤、字符串形态、槽位 device_id）
+  // 与泄露型客户端 UA 剥离。纯函数 + 假 fetch，不碰网络
+  { name: 'metadata-user-id', file: 'metadata-user-id.mjs', smoke: false },
+  // 出站补齐层：thinking / effort / temperature / budget / max_tokens 五项
+  // 缺省填充与模型能力矩阵，纯函数 + 假 fetch，不碰网络
+  { name: 'thinking-policy', file: 'thinking-policy.mjs', smoke: false },
   { name: 'billing-vs-official', file: 'billing-vs-official.mjs', smoke: false },
   // 入站风险审计五关：顺序、开关联动、拒答缓存相似度、决策模型失败放行
   { name: 'risk', file: 'risk.mjs', smoke: false },

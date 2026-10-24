@@ -22,7 +22,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { validateWorkerConfig, Envelope, healthPayload, workerError, resolveClaudeBin } from './config.mjs'
 import { messageStream, messageBody, messageHeaders, sseHeaders } from './sse.mjs'
 import { SlotScheduler } from './scheduler.mjs'
@@ -40,6 +40,8 @@ import {
 } from './prompt-profiles.mjs'
 import { BETA } from './betas.mjs'
 import { mergeOfficialExtraBetas } from './identity.mjs'
+import { formatMetadataUserId, outboundDeviceId } from './frames.mjs'
+import { claudeHomeForSlot } from './persona/claude-home.mjs'
 import { createCodexHandler } from './codex-server.mjs'
 import {
   AnthropicUpstream,
@@ -266,7 +268,278 @@ async function collectAnthropicMessage(stream) {
   return collectMessage(anthropicUpstream.iterEvents(stream))
 }
 
-export function prepareOutbound(body, { systemLayout, panelTtl, promptProfile, environment, officialCaller } = {}) {
+// ─────────────── 出站 metadata（与官方 v1.3.220 对齐）───────────────
+
+/**
+ * metadata 里必须剔除的键名。
+ *
+ * 与官方 `identity-rewrite.mjs:459` 的正则逐字符一致：
+ * `/user|machine|device|host|tz|timezone|locale|setting|session_source|email/i`。
+ *
+ * 为什么要删：这些键描述的是「谁、在哪台机器、什么时区、用哪套设置」。
+ * 原样透传给上游等于把调用方的设备和账户信息直接交出去；而本层随后又会
+ * 写一份自己的 user_id，两份身份并存会互相矛盾 —— 矛盾本身就是中间层的
+ * 证据。调用方没有这些键时这段过滤是空操作，不会改变请求形状。
+ */
+export const METADATA_DROP_KEY_RE = /user|machine|device|host|tz|timezone|locale|setting|session_source|email/i
+
+/**
+ * metadata 的三种形态都要能读：
+ *   - 对象：正常形态；
+ *   - JSON 字符串：有的调用方把整个 metadata 序列化后才塞进来
+ *     （`metadata: "{\"user_id\":\"...\"}"`）。这种形态若原样透传，
+ *     本层写的 user_id 根本进不去 —— 是已知缺口；
+ *   - 空值 / 非法 / 数组：当成空对象，由本层重建。
+ */
+export function parseMetadataObject(raw) {
+  let value = raw
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return {}
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return {}
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value
+}
+
+/**
+ * 解析 metadata.user_id。官方同样允许它是 JSON 字符串或对象
+ * （见 `identity-rewrite.mjs` 的 parseUserId）。
+ */
+export function parseMetadataUserId(raw) {
+  let value = raw
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return null
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value
+}
+
+/** 缺省槽位 ID：与 persona 层的容器命名一致（claude-slot-01..20） */
+export const DEFAULT_METADATA_VM_ID = 'claude-slot-01'
+
+/** 确定性 UUID 形态（8-4-4-4-12，version 4 变体位）。与 persona 层同一套派生规则。 */
+function uuidFromText(text) {
+  const h = createHash('sha256').update(String(text)).digest('hex')
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    `4${h.slice(13, 16)}`,
+    `${'89ab'[parseInt(h[16], 16) & 3]}${h.slice(17, 20)}`,
+    h.slice(20, 32),
+  ].join('-')
+}
+
+/**
+ * 上游对 metadata.user_id 里的 `@` 直接 400（错误码 has_at）。
+ * 调用方偶尔把邮箱当 session_id 传进来，这里换成确定性 UUID 形态，
+ * 而不是让整条请求在本地抛错（抛错会变成 500，比 400 更难排查）。
+ */
+function withoutAt(value) {
+  const s = String(value || '').trim()
+  if (!s) return ''
+  if (!s.includes('@')) return s
+  return uuidFromText(`kin-at-session:${s}`)
+}
+
+/**
+ * account_uuid 只接受非邮箱形态的值。官方明确不把 email 写进
+ * metadata.user_id（上游 has_at 直接 400），所以邮箱形态一律丢弃，
+ * 而不是替换成别的字符串 —— 那会造出一个不存在的账户标识。
+ */
+function withoutAtEmail(value) {
+  const s = String(value || '').trim()
+  if (!s || s.includes('@')) return ''
+  return s
+}
+
+/**
+ * metadata.device_id 的唯一正确来源。
+ *
+ * 优先级：显式 opts.deviceId → `claudeHomeForSlot({ vmId }).deviceId`。
+ *
+ * 后者是硬要求：persona 层写进槽位 `~/.claude.json` 的 userID 就是
+ * 这个值，两边必须是同一个。线上显示 A、本地磁盘存 B 是最典型的
+ * 「同账号频繁换设备」特征。
+ *
+ * 无论走哪条，最后都过一遍 outboundDeviceId：上游只接受 64 位 hex。
+ */
+export function resolveMetadataDeviceId({ deviceId, vmId } = {}) {
+  const explicit = String(deviceId || '').trim()
+  if (explicit) return outboundDeviceId(explicit)
+  const id = String(vmId || '').trim() || DEFAULT_METADATA_VM_ID
+  return outboundDeviceId(claudeHomeForSlot({ vmId: id }).deviceId)
+}
+
+/** 首条 user 文本，只取前 512 字符：用作会话派生的锚点，不是内容指纹。 */
+function firstUserText(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  for (const message of messages) {
+    if (!message || message.role !== 'user') continue
+    const content = message.content
+    if (typeof content === 'string') return content.trim().slice(0, 512)
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      if (typeof block === 'string') return block.trim().slice(0, 512)
+      if (block && block.type === 'text' && typeof block.text === 'string') {
+        return block.text.trim().slice(0, 512)
+      }
+    }
+  }
+  return ''
+}
+
+/** 调用方会话标识的头部顺序，与官方 extractCallerSession 的主干一致。 */
+const METADATA_SESSION_HEADERS = Object.freeze([
+  'x-session-id',
+  'x-conversation-id',
+  'x-claude-code-session-id',
+])
+
+/**
+ * 出站 session_id 的取值规则。
+ *
+ * 显式给了 opts.sessionId 就直接用（控制面已经算好会话的场景）；否则**重建**：
+ * 把调用方身份当锚点，派生成一个新的 UUID。
+ *
+ * 为什么是重建而不是透传（对齐官方 `resolveOutboundSessionId` 的缺省模式
+ * `rebuild`）：调用方给的值可能带着它自己的客户端标识、甚至邮箱，原样写进
+ * metadata.user_id 等于把身份透传上去。官方在 rebuild 模式下也是拿调用方
+ * 身份当输入、重新算一个 uuid，而不是保留原值。
+ *
+ * 锚点顺序（与官方 extractCallerSession 的主干一致）：
+ *   入站 metadata.user_id.session_id → 会话类请求头 → body 的
+ *   session_id / conversation_id → 首条 user 文本。
+ *
+ * 派生值里带上 vmId：同一段对话在不同槽位上是不同「会话」，
+ * 避免上游看到同一个 session 在两个设备间来回跳。
+ * 完全没有任何锚点时也走确定性派生（而不是随机）：随机 UUID 会让每条请求
+ * 都成为新会话，同一段对话在上游看来是几十个会话，比缺字段更可疑。
+ *
+ * 注意：这是「重建」而不是幂等映射 —— 拿上一次的派生值再调一次会得到另一个
+ * 值（官方 rebuild 模式同理）。出站链路只调用一次，不要把它当成可反复套用的
+ * 纯映射。
+ */
+export function resolveMetadataSessionId({ body, headers, sessionId, userId, vmId } = {}) {
+  const direct = withoutAt(sessionId)
+  if (direct) return direct
+  let anchor = withoutAt(userId?.session_id)
+  if (!anchor) {
+    for (const key of METADATA_SESSION_HEADERS) {
+      const value = headers?.[key]
+      anchor = withoutAt(Array.isArray(value) ? value[0] : value)
+      if (anchor) break
+    }
+  }
+  if (!anchor) {
+    for (const key of ['session_id', 'conversation_id']) {
+      anchor = withoutAt(body?.[key])
+      if (anchor) break
+    }
+  }
+  if (!anchor) anchor = `stable:${firstUserText(body)}`
+  const id = String(vmId || '').trim() || DEFAULT_METADATA_VM_ID
+  return uuidFromText(`kin-rebuild-session:${id}#${anchor}`)
+}
+
+/**
+ * 重写出站 metadata：先按黑名单剔除敏感键，再**无条件**写入 user_id。
+ *
+ * 对齐官方 `identity-rewrite.mjs:457-469`：官方对每一条请求都重新生成
+ * metadata，不保留调用方给的那份；本层照做。`user_id` 无条件覆盖而不是
+ * 「没有才补」——保留调用方的 user_id 等于把它的 device_id / session_id
+ * 原样带上去，比完全不写更矛盾。
+ *
+ * 返回新对象，不修改入参：调用方手里的 body 后续还要用于日志/遥测。
+ */
+export function rewriteOutboundMetadata(rawMetadata, { deviceId, accountUuid = '', sessionId = '' } = {}) {
+  const source = parseMetadataObject(rawMetadata)
+  const clean = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (METADATA_DROP_KEY_RE.test(key)) continue
+    clean[key] = value
+  }
+  clean.user_id = formatMetadataUserId({
+    deviceId,
+    accountUuid: String(accountUuid || '').trim(),
+    sessionId,
+  })
+  return clean
+}
+
+/**
+ * 把重写后的 metadata 放回顶层。
+ *
+ * 已存在时原位替换（键序保持不变）；缺失时插到官方位置：tools 之后，
+ * 没有 tools 就跟在 system 之后（官方请求体的顺序是
+ * model → messages → system → tools → metadata → max_tokens）。
+ * 直接把新键挂在末尾会让出站键序与官方请求体不一致，键序本身就是一种
+ * 可观测指纹。
+ */
+export function withMetadataPosition(body, metadata) {
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'metadata')) return { ...body, metadata }
+  const anchor = ['tools', 'system', 'messages'].find((key) => Object.prototype.hasOwnProperty.call(body || {}, key))
+  if (!anchor) return { metadata, ...body }
+  const out = {}
+  for (const [key, value] of Object.entries(body || {})) {
+    out[key] = value
+    if (key === anchor) out.metadata = metadata
+  }
+  return out
+}
+
+/**
+ * 出站前的完整 metadata 处理：解析 → 过滤 → 写 user_id → 归位。
+ *
+ * @param {object} body 组装到这一步的请求体
+ * @param {object} opts
+ * @param {string} [opts.deviceId]       显式设备 ID（64-hex 或任意串，非 hex 会哈希）
+ * @param {string} [opts.vmId]           槽位 ID，device_id 的来源
+ * @param {string} [opts.accountUuid]    槽位绑定的 OAuth 账户 UUID
+ * @param {string} [opts.sessionId]      显式出站会话 ID
+ * @param {object} [opts.headers]        入站请求头（取会话标识用）
+ * @returns {object} 新 body，metadata 已重写
+ */
+export function applyOutboundMetadata(body, { deviceId, vmId, accountUuid, sessionId, headers } = {}) {
+  const source = parseMetadataObject(body?.metadata)
+  const userId = parseMetadataUserId(source.user_id)
+  // account_uuid 与 session_id 先取出来：过滤会把 user_id 整个删掉
+  const account = withoutAtEmail(accountUuid || userId?.account_uuid)
+  const sid = resolveMetadataSessionId({ body, headers, sessionId, userId, vmId })
+  const metadata = rewriteOutboundMetadata(source, {
+    deviceId: resolveMetadataDeviceId({ deviceId, vmId }),
+    accountUuid: account,
+    sessionId: sid,
+  })
+  return withMetadataPosition(body, metadata)
+}
+
+export function prepareOutbound(
+  body,
+  {
+    systemLayout,
+    panelTtl,
+    promptProfile,
+    environment,
+    officialCaller,
+    // 出站身份：device_id 来自槽位，其余缺省按入站信息推导（见 applyOutboundMetadata）
+    deviceId,
+    vmId,
+    accountUuid,
+    sessionId,
+    headers,
+  } = {},
+) {
   // 0. 提示词档位组装。
   //
   // 档位决定整份 system 与 messages 的形态，必须在其它步骤之前完成：
@@ -362,6 +635,14 @@ export function prepareOutbound(body, { systemLayout, panelTtl, promptProfile, e
     if (!betas.includes(BETA.EXTENDED_CACHE_TTL)) next.betas = [...betas, BETA.EXTENDED_CACHE_TTL]
   }
 
+  // 3.5 metadata 重写：过滤敏感键 + 无条件写 user_id。
+  //
+  // 必须在封盖之前——cch 是对最终字节算的哈希，metadata 也是其中一段，
+  // 封盖之后再改 metadata 会让计费头与正文对不上。
+  // 官方对每一条请求都重写 metadata（identity-rewrite.mjs:457-469），
+  // 我们不做条件判断：没有 metadata 也要建一个，字符串形态也要解析后重写。
+  next = applyOutboundMetadata(next, { deviceId, vmId, accountUuid, sessionId, headers })
+
   // 4. cch 封盖（必须在最后，哈希输入是前三步产出的最终字节）
   const sealed = sealClaudeCodeCch(next, { enabled: true, seal: true })
   return sealed
@@ -390,6 +671,26 @@ function cliErrorPayload(scheduler) {
 }
 
 // ─────────────────────────────────────── A 模式：公共 server
+
+/**
+ * 出站身份用的槽位 ID。
+ *
+ * 优先级：控制面配置的 vm_id → 环境变量（容器内是 PERSONA_VM_ID，
+ * 由 persona 注入）→ 按调度器槽位号补成 claude-slot-NN（与 persona/cli.mjs
+ * 的容器命名同一套，01 起）。
+ *
+ * 为什么按槽位而不是固定一个值：persona 是「一个槽位一份设备身份」，
+ * 而调度器把会话粘在同一槽位上（pins），所以单个会话内 device_id 不会漂移；
+ * 反过来把 20 个槽位压成一个 device_id，等于 20 个账号共用一台设备。
+ */
+export function outboundVmId({ config, env, slot } = {}) {
+  const direct = String(config?.vm_id || env?.PERSONA_VM_ID || env?.SKYLINK_VM_ID || '').trim()
+  if (direct) return direct
+  const matched = /^s(\d+)$/.exec(String(slot || ''))
+  const index = matched ? Number(matched[1]) : 0
+  return `claude-slot-${String(index + 1).padStart(2, '0')}`
+}
+
 export function buildPublicServer({
   claudeBin,
   env,
@@ -570,7 +871,11 @@ export function buildPublicServer({
         return sendJson(res, 503, workerError(503, 'kernel_unavailable', 'no free slot'), { 'x-request-id': requestId })
       }
 
-      // 出站：第 0 步组装（提示词档位 + 断点 + cch），第 1 步真发上游。
+      // 槽位名先算出来：出站 device_id 按槽位派生（见 outboundVmId），
+      // 下面的 prepareOutbound 需要它，mock 响应也要回显同一个值。
+      const slotName = submitted ? submitted.slot : scheduler.slots[scheduler.slots.findIndex((s) => s.phase === 'idle')]?.id || 's00'
+
+      // 出站：第 0 步组装（提示词档位 + 断点 + metadata + cch），第 1 步真发上游。
       //
       // 组装结果必须原样作为 wire 体发出：cch 是对最终字节算的哈希，
       // 在这里再动任何字段都会让计费头与正文对不上。
@@ -580,9 +885,11 @@ export function buildPublicServer({
         systemLayout: process.env.SKYLINK_SYSTEM_LAYOUT || 'identity',
         promptProfile: process.env.SKYLINK_PROMPT_PROFILE || undefined,
         panelTtl: process.env.SKYLINK_CACHE_TTL || '1h',
+        // 出站身份：device_id 必须与 persona 写进槽位 ~/.claude.json 的
+        // userID 同源，因此按槽位 ID 派生；会话标识从入站头/body 取。
+        vmId: outboundVmId({ config, env, slot: slotName }),
+        headers: req.headers,
       })
-
-      const slotName = submitted ? submitted.slot : scheduler.slots[scheduler.slots.findIndex((s) => s.phase === 'idle')]?.id || 's00'
 
       // mock 模式仅用于无凭据的本地联调，默认关闭。
       // 开着它而忘了关，控制面看到的是一条健康的链路，实际什么都没发出去。
@@ -634,14 +941,18 @@ export function buildPublicServer({
       const wantsStream = payload.stream === true
       const mode = wantsStream ? MODE.STREAM : MODE.AGGREGATE
 
-      // 请求头：调用方显式给的 x-* 头可以让出站覆盖默认值（例如自定义 UA），
-      // 但 token 与 beta 由本层决定：token 来自凭据，beta 从 body.betas 折进头。
+      // 请求头：token 与 beta 由本层决定（token 来自凭据，beta 从 body.betas 折进头），
+      // 调用方的 UA 只作为识别输入，不直接决定出站值。
+      //
+      // callerUserAgent 必须传：官方族 UA 原样保留，claude-desktop / agent-sdk
+      // 这类第三方入口标识一律回落到官方 UA（见 official-ua.mjs）。
       const outboundHeaders = buildOutboundHeaders({
         token: credential.token,
         authScheme: credential.auth_scheme,
         betas: buildBetaHeader({ bodyBetas: outbound?.betas ?? [] }),
         accept: 'text/event-stream',
         env,
+        callerUserAgent: req.headers['user-agent'] || '',
       })
 
       let upstream
@@ -829,16 +1140,9 @@ function buildGatewayWorkerServer(cfg, { claudeBin, env }) {
  * 由调用方生成新 session，而不是让请求失败。
  */
 function extractSessionId(body) {
-  const raw = body?.metadata?.user_id
-  if (!raw) return undefined
-  let parsed = raw
-  if (typeof raw === 'string') {
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      return undefined
-    }
-  }
+  // metadata 本身也可能是 JSON 字符串（见 parseMetadataObject 的说明），
+  // 先统一成对象再读 user_id，两种形态走同一条解析路径。
+  const parsed = parseMetadataUserId(parseMetadataObject(body?.metadata).user_id)
   const id = parsed?.session_id
   return typeof id === 'string' && id.trim() ? id.trim() : undefined
 }
