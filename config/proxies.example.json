@@ -1,0 +1,211 @@
+{
+  "$schema": "https://skylink.local/schemas/proxies.json",
+  "_readme": [
+    "槽位固定 20 个，一个代理只能给一个槽位。请填满 20 条，或接受部分槽位无出口。",
+    "host 请填真实 SOCKS5 地址。请填 example.com / 1.2.3.4 / 192.0.2.x 会被识别为占位符并跳过真实拨号。",
+    "expected_exit_ip 强烈建议填写：出口验证靠它判定「真的走了代理」，不填只能看到实测值。",
+    "username/password 支持 SOCKS5 用户名密码认证（RFC 1929）；免认证代理留空即可。",
+    "region 只用于按槽位就近分配；不填也可以，按顺序分配。",
+    "生成配置：node src/egress/cli.mjs emit --out /tmp/egress-demo",
+    "校验配置：node src/egress/cli.mjs verify-config",
+    "真实探测：node src/egress/cli.mjs probe   （会联网，需先替换下面的占位符）"
+  ],
+  "proxies": [
+    {
+      "id": "p01",
+      "type": "socks5",
+      "host": "192.0.2.10",
+      "port": 1080,
+      "username": "user01",
+      "password": "PASS_01",
+      "region": "us-west",
+      "expected_exit_ip": "192.0.2.10",
+      "enabled": true
+    },
+    {
+      "id": "p02",
+      "type": "socks5",
+      "host": "192.0.2.11",
+      "port": 1080,
+      "username": "user02",
+      "password": "PASS_02",
+      "region": "us-west",
+      "expected_exit_ip": "192.0.2.11",
+      "enabled": true
+    },
+    {
+      "id": "p03",
+      "type": "socks5",
+      "host": "192.0.2.12",
+      "port": 1080,
+      "username": "user03",
+      "password": "PASS_03",
+      "region": "us-east",
+      "expected_exit_ip": "192.0.2.12",
+      "enabled": true
+    },
+    {
+      "id": "p04",
+      "type": "socks5",
+      "host": "192.0.2.13",
+      "port": 1080,
+      "username": "user04",
+      "password": "PASS_04",
+      "region": "us-east",
+      "expected_exit_ip": "192.0.2.13",
+      "enabled": true
+    },
+    {
+      "id": "p05",
+      "type": "socks5",
+      "host": "192.0.2.14",
+      "port": 1080,
+      "username": "user05",
+      "password": "PASS_05",
+      "region": "eu-west",
+      "expected_exit_ip": "192.0.2.14",
+      "enabled": true
+    },
+    {
+      "id": "p06",
+      "type": "socks5",
+      "host": "192.0.2.15",
+      "port": 1080,
+      "username": "user06",
+      "password": "PASS_06",
+      "region": "eu-west",
+      "expected_exit_ip": "192.0.2.15",
+      "enabled": true
+    },
+    {
+      "id": "p07",
+      "type": "socks5",
+      "host": "192.0.2.16",
+      "port": 1080,
+      "username": "user07",
+      "password": "PASS_07",
+      "region": "ap-southeast",
+      "expected_exit_ip": "192.0.2.16",
+      "enabled": true
+    },
+    {
+      "id": "p08",
+      "type": "socks5",
+      "host": "192.0.2.17",
+      "port": 1080,
+      "username": "user08",
+      "password": "PASS_08",
+      "region": "ap-southeast",
+      "expected_exit_ip": "192.0.2.17",
+      "enabled": true
+    },
+    {
+      "id": "p09",
+      "type": "socks5",
+      "host": "192.0.2.18",
+      "port": 1080,
+      "username": "user09",
+      "password": "PASS_09",
+      "region": "us-west",
+      "expected_exit_ip": "192.0.2.18",
+      "enabled": true
+    },
+    {
+      "id": "p10",
+      "type": "socks5",
+      "host": "192.0.2.19",
+      "port": 1080,
+      "username": "user10",
+      "password": "PASS_10",
+      "region": "us-west",
+      "expected_exit_ip": "192.0.2.19",
+      "enabled": true
+    },
+    {
+      "id": "p11",
+      "type": "socks5",
+      "host": "198.51.100.10",
+      "port": 1080,
+      "username": "",
+      "password": "",
+      "region": "us-east",
+      "expected_exit_ip": "",
+      "enabled": true
+    },
+    {
+      "id": "p12",
+      "type": "socks5",
+      "host": "198.51.100.11",
+      "port": 1080,
+      "username": "",
+      "password": "",
+      "region": "us-east",
+      "expected_exit_ip": "",
+      "enabled": true
+    },
+    {
+      "id": "p13",
+      "type": "socks5",
+      "host": "198.51.100.12",
+      "port": 1080,
+      "region": "eu-west",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p14",
+      "type": "socks5",
+      "host": "198.51.100.13",
+      "port": 1080,
+      "region": "eu-west",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p15",
+      "type": "socks5h",
+      "host": "198.51.100.14",
+      "port": 1080,
+      "region": "ap-southeast",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p16",
+      "type": "socks5h",
+      "host": "203.0.113.10",
+      "port": 1080,
+      "region": "ap-southeast",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p17",
+      "type": "socks5",
+      "host": "203.0.113.11",
+      "port": 1080,
+      "region": "us-west",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p18",
+      "type": "socks5",
+      "host": "203.0.113.12",
+      "port": 1080,
+      "region": "us-west",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p19",
+      "type": "socks5",
+      "host": "203.0.113.13",
+      "port": 1080,
+      "region": "us-west",
+      "expected_exit_ip": ""
+    },
+    {
+      "id": "p20",
+      "type": "socks5",
+      "host": "203.0.113.14",
+      "port": 1080,
+      "region": "us-west",
+      "expected_exit_ip": ""
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "note": "第 2 关硬正则规则。distill 类别跟蒸馏总开关走，其余类别跟 hard_regex_enabled 走。enabled=false 的规则永不生效。规则顺序即优先级：先命中先返回。",
+  "enabled": true,
+  "categories": ["nsfw", "distill", "crack", "jailbreak", "custom"],
+  "rules": [
+    {
+      "category": "jailbreak",
+      "enabled": true,
+      "source": "\\b(?:jailbreak|dan)\\s+mode\\b",
+      "label": "jailbreak mode"
+    },
+    {
+      "category": "jailbreak",
+      "enabled": true,
+      "source": "\\bignore\\s+(?:all\\s+)?(?:previous|prior|above)\\s+(?:instructions|rules|prompts)\\b",
+      "label": "ignore previous instructions"
+    },
+    {
+      "category": "jailbreak",
+      "enabled": true,
+      "source": "\\b(?:bypass|disable|remove)\\s+(?:your\\s+|the\\s+|all\\s+)?(?:safety|content)\\s+(?:filters?|policies|restrictions|limits)\\b",
+      "label": "bypass safety filters"
+    },
+    {
+      "category": "jailbreak",
+      "enabled": true,
+      "source": "(?:解除|关闭|绕过|无视)(?:你的|所有|全部)?(?:安全|内容)?(?:限制|审查|过滤|策略)",
+      "label": "解除安全限制"
+    },
+    {
+      "category": "jailbreak",
+      "enabled": true,
+      "source": "(?:越狱|破限)(?:模式|提示词|提示|指令)",
+      "label": "越狱模式"
+    },
+    {
+      "category": "crack",
+      "enabled": true,
+      "source": "(?<![\\w-])(?:keygen|warez)(?![\\w-])",
+      "label": "keygen / warez"
+    },
+    {
+      "category": "crack",
+      "enabled": true,
+      "source": "(?:破解补丁|注册机|激活码生成器)",
+      "label": "破解工具"
+    },
+    {
+      "category": "crack",
+      "enabled": true,
+      "source": "\\bcrack(?:ing)?\\s+(?:this\\s+|the\\s+)?(?:software|license|drm|activation)\\b",
+      "label": "crack software"
+    },
+    {
+      "category": "nsfw",
+      "enabled": true,
+      "source": "\\b(?:write|generate|describe)\\s+(?:an?\\s+)?(?:explicit|pornographic)\\s+(?:sex|sexual)\\b",
+      "label": "explicit sexual writing"
+    },
+    {
+      "category": "nsfw",
+      "enabled": true,
+      "source": "(?:生成|写一段|描述)(?:露骨|色情)(?:内容|小说|场景)",
+      "label": "露骨内容"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "\\bdistill(?:ation|ing)?\\s+(?:of\\s+)?(?:(?:the|your|a|an|reusable|durable|rollout|hidden|internal|full|complete)\\s+)?(?:reasoning(?:\\s+traces?)?|chain[- ]of[- ]thoughts?|teacher(?:\\s+model)?)\\b",
+      "label": "distill reasoning"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "\\b(?:extract|export|dump|reveal|harvest|exfiltrate)(?:ing|ed|ion|s)?\\s+(?:(?:the|your|a|an|full|hidden|internal|complete|raw|durable|entire)\\s+){0,4}(?:chain[- ]of[- ]thoughts?|reasoning\\s+traces?|hidden\\s+reasoning|internal\\s+reasoning|internal\\s+monologues?)\\b",
+      "label": "extract reasoning trace"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "\\b(?:chain[- ]of[- ]thought|reasoning\\s+trace)\\s+extraction\\b",
+      "label": "reasoning trace extraction"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "(?:思维链蒸馏|推理蒸馏|思考链蒸馏)",
+      "label": "思维链蒸馏"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "(?:提取|导出|抽取|蒸馏|收割|扒取)\\s*(?:出|取)?\\s*(?:你的|本人的|完整|全部|隐藏|内部)?\\s*(?:的)?\\s*(?:思维链|思考链|推理链)",
+      "label": "提取思维链"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "(?:思维链|思考链|推理链)\\s*(?:的)?\\s*(?:提取|导出|抽取|蒸馏|收割)",
+      "label": "思维链导出"
+    },
+    {
+      "category": "distill",
+      "enabled": true,
+      "source": "(?:提取|导出|抽取)\\s*(?:出)?\\s*(?:隐藏|内部)\\s*(?:的)?\\s*(?:推理|思维|思考)",
+      "label": "提取内部推理"
+    },
+    {
+      "category": "custom",
+      "enabled": true,
+      "source": "\\bphishing\\s+kit\\b",
+      "label": "phishing kit"
+    }
+  ],
+  "patterns": []
+}

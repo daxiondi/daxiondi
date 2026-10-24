@@ -1,0 +1,189 @@
+{
+  "name": "multiturn-mixed-blocks",
+  "note": "多轮对话 + 数组 content 混排（text / image / tool_use / tool_result / thinking）：验证 __variants 与嵌套 content 的递归，且 thinking 块不带 cache_control",
+  "request": {
+    "body": {
+      "model": "claude-opus-5-5",
+      "max_tokens": 2048,
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 4096
+      },
+      "system": "You are a careful reviewer.",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "what is in this screenshot?"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "the user wants a description"
+            },
+            {
+              "type": "text",
+              "text": "It shows a terminal window."
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_01abc",
+              "name": "read_file",
+              "input": {
+                "path": "/workspace/notes.md"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_01abc",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "notes contents here"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "build": {
+      "system_layout": "identity",
+      "panel_ttl": "5m",
+      "seal": true
+    }
+  },
+  "expected_shape": {
+    "model": "claude-opus-5-5",
+    "max_tokens": "<number>",
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": "<number>"
+    },
+    "system": {
+      "__array": 3,
+      "__item": {
+        "type": "text",
+        "text": "<text:62>"
+      }
+    },
+    "messages": {
+      "__array": 3,
+      "__item": {
+        "role": "user",
+        "content": {
+          "__array": 2,
+          "__item": {
+            "type": "text",
+            "text": "<text:27>"
+          },
+          "__variants": [
+            {
+              "type": "text",
+              "text": "<text:27>"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "<text:9>",
+                "data": "<text:24>"
+              }
+            }
+          ]
+        }
+      },
+      "__variants": [
+        {
+          "role": "user",
+          "content": {
+            "__array": 2,
+            "__item": {
+              "type": "text",
+              "text": "<text:27>"
+            },
+            "__variants": [
+              {
+                "type": "text",
+                "text": "<text:27>"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "<text:9>",
+                  "data": "<text:24>"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": {
+            "__array": 3,
+            "__item": {
+              "type": "thinking",
+              "thinking": "<text:28>"
+            },
+            "__variants": [
+              {
+                "type": "thinking",
+                "thinking": "<text:28>"
+              },
+              {
+                "type": "text",
+                "text": "<text:27>"
+              },
+              {
+                "type": "tool_use",
+                "id": "<text:11>",
+                "name": "<text:9>",
+                "input": {
+                  "path": "<text:19>"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": {
+            "__array": 1,
+            "__item": {
+              "type": "tool_result",
+              "tool_use_id": "<text:11>",
+              "content": {
+                "__array": 1,
+                "__item": {
+                  "type": "text",
+                  "text": "<text:19>"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "__format": "outbound-shape/1"
+}

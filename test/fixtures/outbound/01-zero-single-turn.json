@@ -1,0 +1,49 @@
+{
+  "name": "zero-single-turn",
+  "note": "zero 布局 + 单轮字符串 content：只有 billing + 环境两块 system，无 cache_control，无 betas",
+  "request": {
+    "body": {
+      "model": "claude-sonnet-4-5",
+      "max_tokens": 64,
+      "messages": [
+        {
+          "role": "user",
+          "content": "ping"
+        }
+      ]
+    },
+    "build": {
+      "system_layout": "zero",
+      "seal": true
+    }
+  },
+  "expected_shape": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": "<number>",
+    "messages": {
+      "__array": 1,
+      "__item": {
+        "role": "user",
+        "content": "<text:4>"
+      }
+    },
+    "system": {
+      "__array": 2,
+      "__item": {
+        "type": "text",
+        "text": "<billing:cc_prompt_id,cch,prompt_version>"
+      },
+      "__variants": [
+        {
+          "type": "text",
+          "text": "<billing:cc_prompt_id,cch,prompt_version>"
+        },
+        {
+          "type": "text",
+          "text": "<text:40>"
+        }
+      ]
+    }
+  },
+  "__format": "outbound-shape/1"
+}

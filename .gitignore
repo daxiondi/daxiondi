@@ -1,0 +1,35 @@
+# 依赖
+node_modules/
+package-lock.json
+
+# 临时与产物
+.tmp/
+*.log
+*.pid
+data/
+run/
+
+# 本地真实配置（示例文件 proxies.example.json 保留）
+config/proxies.json
+config/*.local.json
+*.local.json
+
+# 凭据：任何形态都不入库
+*credential*.json
+*credentials*.json
+*-credentials.json
+live/
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# 编译器产物（LKM 由 install.sh 现编）
+native/lkm/*.ko
+native/lkm/*.o
+native/lkm/*.mod
+native/lkm/*.mod.c
+native/lkm/.skylink_uts.*
+native/lkm/Module.symvers
+native/lkm/modules.order

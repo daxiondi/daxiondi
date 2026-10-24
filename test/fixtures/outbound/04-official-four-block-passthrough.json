@@ -1,0 +1,119 @@
+{
+  "name": "official-four-block-passthrough",
+  "note": "调用方已给 ≥4 块官方 system：走 wire 规范化分支（billing 的 cch 抹成占位），不重建布局；metadata 走 frames 的 user_id 规范化",
+  "request": {
+    "body": {
+      "model": "claude-opus-5-5",
+      "max_tokens": 32000,
+      "metadata": {
+        "user_id": {
+          "device_id": "not-a-hex-device",
+          "account_uuid": "00000000-0000-0000-0000-000000000000",
+          "session_id": "session-abc"
+        }
+      },
+      "system": [
+        {
+          "type": "text",
+          "text": "x-anthropic-billing-header: cc_version=2.1.303.abc; cc_entrypoint=cli; cch=12345;"
+        },
+        {
+          "type": "text",
+          "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "type": "text",
+          "text": "# Environment\n - Working directory: /workspace\n - Platform: darwin",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Main system prompt body, kept verbatim from the caller.",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>panel overlay</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "fix the failing test",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ]
+        }
+      ],
+      "stream": true
+    },
+    "build": {
+      "system_layout": "stock",
+      "seal": true,
+      "normalize_metadata": true
+    }
+  },
+  "expected_shape": {
+    "model": "claude-opus-5-5",
+    "max_tokens": "<number>",
+    "metadata": {
+      "user_id": "<text:161>"
+    },
+    "system": {
+      "__array": 4,
+      "__item": {
+        "type": "text",
+        "text": "<billing:cc_version,cc_entrypoint,cch>"
+      },
+      "__variants": [
+        {
+          "type": "text",
+          "text": "<billing:cc_version,cc_entrypoint,cch>"
+        },
+        {
+          "type": "text",
+          "text": "<text:57>",
+          "cache_control": true
+        }
+      ]
+    },
+    "messages": {
+      "__array": 1,
+      "__item": {
+        "role": "user",
+        "content": {
+          "__array": 2,
+          "__item": {
+            "type": "text",
+            "text": "<text:48>"
+          },
+          "__variants": [
+            {
+              "type": "text",
+              "text": "<text:48>"
+            },
+            {
+              "type": "text",
+              "text": "<text:20>",
+              "cache_control": true
+            }
+          ]
+        }
+      }
+    },
+    "stream": "<bool>"
+  },
+  "__format": "outbound-shape/1"
+}

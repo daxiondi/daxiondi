@@ -1,0 +1,11 @@
+{
+  "name": "reimpl",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/run-all.mjs",
+    "test:fast": "node test/run-all.mjs --fast",
+    "smoke": "node test/smoke-server.mjs",
+    "persona": "node src/persona/cli.mjs"
+  }
+}
