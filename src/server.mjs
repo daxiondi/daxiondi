@@ -148,7 +148,7 @@ function readBody(req, limit) {
  * cc_entrypoint 固定 sdk-cli：出站 UA 与计费头必须是同一形态，
  * 否则两者对不上会形成可识别的矛盾特征。
  */
-function defaultBillingHeader(cliVersion, firstUserText = '', sessionId = '') {
+function defaultBillingHeader(cliVersion, text = '', sessionId = '', messages = null) {
   // 必须是完整格式，不能只写版本号。
   //
   // 官方格式（v1.3.220 crs-persona.mjs:376）：
@@ -162,8 +162,9 @@ function defaultBillingHeader(cliVersion, firstUserText = '', sessionId = '') {
   // （这正是官方 1.3.220 修复的另一半：billing 只能有一个生成点）。
   return buildBillingAttribution({
     cliVersion: normalizeBillingVersion(cliVersion),
-    firstUserText,
+    firstUserText: text,
     sessionId,
+    messages,
   })
 }
 
@@ -596,7 +597,15 @@ export function prepareOutbound(
     // cli_hop 结构下档位不产 billing，这里必须补一个合法计费头，
     // 否则布局层会跳过 billing 块，出站请求缺少计费头。
     // 身份句与 billing 的 cc_entrypoint=sdk-cli 保持一致。
-    const attribution = assembled.billing || defaultBillingHeader(assembled.cliVersion)
+    // 必须把首条 user 文本与 messages 一起传进去：
+    //   · firstUserText 决定 cc_version 的 3 位指纹尾缀，传空串等于用了
+    //     一个与真实内容无关的指纹 —— 同会话多轮之间还会漂
+    //   · messages 决定 turn 索引（cc_turn_origin 等），不传就缺这段
+    // 之前这里只传版本号，两个字段都是错的。
+    const attribution = assembled.billing || defaultBillingHeader(
+      assembled.cliVersion,
+      firstUserText(next),
+    )
     // 布局来源有两条：显式参数优先，其次才是环境变量。
     // 只看环境变量时，调用方传进来的 systemLayout 会被静默忽略，
     // 面板上切换布局不生效，而出站字节仍按旧布局生成。

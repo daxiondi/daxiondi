@@ -1684,6 +1684,37 @@ const GOLDEN_SSE = [
   }
 }
 
+// ─────────────── 调用方自带 billing 必须原样保留 ───────────────
+//
+// 上游 v1.3.220 的 ensureBillingAttribution 语义：body.system 里已有
+// billing 就 `return body`，即**调用方自带的不改写**。
+//
+// 我们曾经把它删掉：prompt-profiles 的过滤条件写成「本档生成了 billing
+// 就删调用方那条」，但 stock 布局下 layoutSystemBlocks 根本不写 billing，
+// 结果两边都没有 —— 出站零计费头，而且丢了调用方的原始内容。
+{
+  const { prepareOutbound } = await import('../src/server.mjs')
+  const CALLER_BILLING =
+    'x-anthropic-billing-header: cc_version=2.1.280.abc; cc_entrypoint=cli; cch=11111; cc_prompt_id=caller-owned;'
+
+  const withCaller = prepareOutbound({
+    model: 'claude-sonnet-4-5', max_tokens: 1024,
+    system: [{ type: 'text', text: CALLER_BILLING }, { type: 'text', text: 'You are helpful.' }],
+    messages: [{ role: 'user', content: 'hi' }],
+  })
+  const sysText = ((withCaller.body || withCaller).system || [])
+    .map((b) => String(b?.text ?? b)).join('\n')
+  ok('调用方 billing 原样保留', sysText.includes('cc_prompt_id=caller-owned'), sysText.slice(0, 200))
+  eq('出站恰有一条 billing', (sysText.match(/x-anthropic-billing-header:/g) || []).length, 1)
+  // cch 必须被重算 —— 它是请求体哈希，而我们改动了 system（加 Environment 块）。
+  // 保留调用方的旧 cch 会让哈希与字节不符，那才是错的。
+  // 该保留的是除 cch 以外的字段：cc_prompt_id / cc_entrypoint / cc_version。
+  ok('调用方 cc_entrypoint 保留', sysText.includes('cc_entrypoint=cli'), sysText.slice(0, 200))
+  ok('调用方 cc_version 保留', sysText.includes('cc_version=2.1.280.abc'), sysText.slice(0, 200))
+  ok('cch 已重算（不再等于调用方的 11111）', !sysText.includes('cch=11111'), sysText.slice(0, 200))
+  ok('调用方其余 system 内容仍在', sysText.includes('You are helpful.'), sysText.slice(0, 200))
+}
+
 // ─────────────── 结果 ───────────────
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)

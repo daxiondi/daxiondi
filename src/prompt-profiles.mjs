@@ -37,8 +37,7 @@ import {
   CLI_IDENTITY,
   IDENTITY,
   buildBillingAttribution,
-  layoutSystemBlocks,
-} from './system-layout.mjs'
+  layoutSystemBlocks, getSystemLayout } from './system-layout.mjs'
 import { normalizePanelCacheTtl } from './identity.mjs'
 
 // ─────────────────────────────── 档位标识
@@ -290,11 +289,11 @@ export function billingHeader({
   promptVersion = null,
 } = {}) {
   const def = profileDefinition(profile)
+  // 不再传 promptVersion —— 官方 billing 头里没有这个字段（见 system-layout 注释）。
   return buildBillingAttribution({
     cliVersion: def.cliVersion,
     firstUserText,
     entrypoint: def.entrypoint,
-    promptVersion: promptVersion ?? def.promptVersion,
   })
 }
 
@@ -693,10 +692,30 @@ export function assembleSystemBlocks({
   }
 
   // 结构 B：现有布局，调用方 system 仍在 system 内，只换 billing 版本。
-  // 调用方自带的 billing 行必须去掉：本档已经在头块写了一条，两条同时出站
-  // 会让上游按第一条计费、第二条污染前缀，断点数量也跟着漂。
+  //
+  // 只有**本档确实生成了 billing** 时才删调用方那条。
+  // 原注释的假设是"本档已经在头块写了一条"，但默认档下 billing 是空的
+  // （cli_hop 结构不产 billing），结果把调用方的 billing 删掉之后
+  // 出站一条计费头都没有 —— 实测复现：调用方带 billing 进，
+  // 出站 system 里 billing 数为 0。
+  //
+  // 这与具体做法相反：上游 v1.3.220 的 ensureBillingAttribution 是
+  // 「body.system 里已有 billing 就原样返回」，即调用方自带的不改写。
+  // 删掉它比不改写更糟 —— 丢了内容，还让计费头彻底消失。
+  // 判定条件必须是「布局层真的会写 billing」，而不是「本档生成了 billing 字符串」。
+  //
+  // 这两者不等价：layoutSystemBlocks 在 stock 布局下**完全不写 billing**
+  // （system-layout.mjs:283-290：只有 zero / identity 分支才 push）。
+  // 而 billing 字符串在 stock 下仍然非空，于是按"字符串非空就删"会把
+  // 调用方那条删掉，自己的又不输出 —— 出站零计费头。
+  //
+  // 实测复现：调用方带 cc_prompt_id=caller-owned 的 billing 进，
+  // 出站 system 里 billing 数为 0。
+  const layout = getSystemLayout(env)
+  const layoutWritesBilling = layout !== 'stock'
+  const ownBilling = layoutWritesBilling && billing && isBillingText(billing)
   const leftover = systemTexts(callerSystem)
-    .filter((text) => !isBillingText(text))
+    .filter((text) => !(ownBilling && isBillingText(text)))
     .join('\n\n')
   const blocks = layoutSystemBlocks({ attribution: billing, leftover: leftover || undefined, env })
   return blocks.map((text) => ({ type: 'text', text }))

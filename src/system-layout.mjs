@@ -120,6 +120,7 @@ export function buildBillingAttribution({
   sessionId = '',
   promptIndex = null,
   turnIndex = null,
+  messages = null,
 } = {}) {
   const ver = normalizeBillingVersion(cliVersion)
   const fp = billingFingerprint(firstUserText, ver)
@@ -130,6 +131,15 @@ export function buildBillingAttribution({
   // 这里**不能**加 prompt_version —— 官方 billing 头里没有这个字段。
   // 我们之前多写了 `prompt_version=<ver>`，多出来的字段本身就是识别特征：
   // 上游只要校验 billing 头的字段集合，就能判定"这不是官方客户端发的"。
+  // 不自动从 messages 推导索引。
+  //
+  // 依据：v1.3.220 的 handle-protocol.mjs:1347 调用 ensureBillingAttribution 时
+  // 只传 firstUserText / sessionId / cliVersion，**不传 indexes** ——
+  // 所以 220 的标准出站 billing 没有 cc_turn_origin 这段 tail。
+  //
+  // 自动推导是 v1.3.225 才加的行为（8d1d3b73 引入 billingIndexesFromMessages）。
+  // 我们锁 220，就不该带 225 的形态：多一个官方在该版本不会发的字段，
+  // 同样是可识别的差异。
   const tail = billingTurnSuffix(promptIndex, turnIndex)
   return `x-anthropic-billing-header: cc_version=${ver}.${fp}; cc_entrypoint=${entrypoint}; cch=00000; cc_prompt_id=${promptId};${tail}`
 }
@@ -147,6 +157,39 @@ function boundedBillingIndex(value, min) {
  * 轮次尾缀。只有两个索引都合法时才追加 —— 缺一个就不写，
  * 不要补 0 或空串：官方在没有索引时是整段不出现。
  */
+/**
+ * 从 messages 推导轮次索引。
+ *
+ * **注意：v1.3.220 不使用这个函数** —— 它是 v1.3.225 才引入的
+ * （8d1d3b73）。我们锁 220，所以出站路径**不调用**它；
+ * 保留实现只为在需要显式补索引（如面板手动指定）时有据可依。
+ *
+ * 如果将来决定跟到 225+，把它接进 buildBillingAttribution 即可。
+ *
+ * 对齐上游 v1.3.225 的 crs-persona.mjs:325：只要有至少一条
+ * 「非 tool_result 的 user 消息」就返回固定的 {promptIndex:0, turnIndex:1}。
+ *
+ * 这是上游的简化实现 —— 它不按实际轮数递增，只表示"这是一次新的
+ * 用户发起"。照抄而不是"做得更聪明"，因为多写一个会变化的索引
+ * 反而与官方字节不一致。
+ *
+ * 没有 messages 或全是 tool_result → 返回 null，此时不写 turn tail。
+ */
+export function billingIndexesFromMessages(messages) {
+  if (!Array.isArray(messages)) return null
+  const toolResultOnly = (m) => {
+    const c = m?.content
+    if (!Array.isArray(c) || c.length === 0) return false
+    return c.every((b) => b && typeof b === 'object' && b.type === 'tool_result')
+  }
+  let prompts = 0
+  for (const msg of messages) {
+    if (msg?.role === 'user' && !toolResultOnly(msg)) prompts += 1
+  }
+  if (prompts < 1) return null
+  return { promptIndex: 0, turnIndex: 1 }
+}
+
 export function billingTurnSuffix(promptIndex, turnIndex) {
   const prompt = boundedBillingIndex(promptIndex, 0)
   const turn = boundedBillingIndex(turnIndex, 1)
