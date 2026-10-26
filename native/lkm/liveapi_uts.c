@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * skylink_uts —— 按槽位改写 UTS namespace 的 release / version。
+ * liveapi_uts —— 按槽位改写 UTS namespace 的 release / version。
  *
  * 为什么需要内核模块：uname(2) 返回的是 current->nsproxy->uts_ns->name，
  * 用户态没有任何系统调用能改其中的 release / version（sethostname 只能改
@@ -14,8 +14,8 @@
  * 不受这里影响 —— 那条路径需要另行处理（见 docs）。
  *
  * 接口：
- *   echo "<pid> <release> <version>" > /proc/skylink_uts
- *   cat /proc/skylink_uts      # 读回最近一次改写结果
+ *   echo "<pid> <release> <version>" > /proc/liveapi_uts
+ *   cat /proc/liveapi_uts      # 读回最近一次改写结果
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -29,16 +29,16 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
-#define PROC_NAME "skylink_uts"
+#define PROC_NAME "liveapi_uts"
 #define SKYLINK_MAX 512
 
-static struct proc_dir_entry *skylink_proc;
+static struct proc_dir_entry *liveapi_proc;
 
 /* 读：回显最近一次改写，便于用户态断言 */
 static char last_result[SKYLINK_MAX];
-static DEFINE_MUTEX(skylink_lock);
+static DEFINE_MUTEX(liveapi_lock);
 
-static ssize_t skylink_read(struct file *f, char __user *buf, size_t len, loff_t *off)
+static ssize_t liveapi_read(struct file *f, char __user *buf, size_t len, loff_t *off)
 {
 	size_t n;
 	int ret;
@@ -46,12 +46,12 @@ static ssize_t skylink_read(struct file *f, char __user *buf, size_t len, loff_t
 	if (*off > 0)
 		return 0;
 
-	mutex_lock(&skylink_lock);
+	mutex_lock(&liveapi_lock);
 	n = strnlen(last_result, sizeof(last_result));
 	ret = n ? (int)n : 0;
 	if (ret && copy_to_user(buf, last_result, n))
 		ret = -EFAULT;
-	mutex_unlock(&skylink_lock);
+	mutex_unlock(&liveapi_lock);
 
 	if (ret > 0)
 		*off += ret;
@@ -64,7 +64,7 @@ static ssize_t skylink_read(struct file *f, char __user *buf, size_t len, loff_t
  * 用 find_task_by_vpid + get_task_struct 拿引用，再用 RCU 读 nsproxy。
  * nsproxy 本身是 RCU 保护的，不能直接持有裸指针跨过 rcu_read_unlock。
  */
-static ssize_t skylink_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
+static ssize_t liveapi_write(struct file *f, const char __user *buf, size_t len, loff_t *off)
 {
 	char *kbuf;
 	char *p;
@@ -107,7 +107,7 @@ static ssize_t skylink_write(struct file *f, const char __user *buf, size_t len,
 	tok_ver = cursor;   /* 余下全部，允许含空格 */
 
 	if (!tok_pid || !tok_rel || !tok_ver) {
-		pr_info("skylink_uts: parse fail pid=%d rel=%d ver=%d\n",
+		pr_info("liveapi_uts: parse fail pid=%d rel=%d ver=%d\n",
 			!!tok_pid, !!tok_rel, !!tok_ver);
 		ret = -EINVAL;
 		goto out;
@@ -136,7 +136,7 @@ static ssize_t skylink_write(struct file *f, const char __user *buf, size_t len,
 		put_pid(pidp);
 	}
 	if (!task) {
-		pr_info("skylink_uts: no task for pid %ld\n", pid);
+		pr_info("liveapi_uts: no task for pid %ld\n", pid);
 		ret = -ESRCH;
 		goto out;
 	}
@@ -156,17 +156,17 @@ static ssize_t skylink_write(struct file *f, const char __user *buf, size_t len,
 	 * 写成字段比较会退化成比较两个数组的地址，恒为真且编译器会警告。 */
 	if (ns != &init_uts_ns) {
 		/* 防止误改宿主机自己的 uts_ns（那是 init_uts_ns） */
-		mutex_lock(&skylink_lock);
+		mutex_lock(&liveapi_lock);
 		strscpy(ns->name.release, tok_rel, sizeof(ns->name.release));
 		strscpy(ns->name.version, tok_ver, sizeof(ns->name.version));
 		snprintf(last_result, sizeof(last_result),
 			 "pid=%ld release=%s version=%s", pid,
 			 ns->name.release, ns->name.version);
-		mutex_unlock(&skylink_lock);
+		mutex_unlock(&liveapi_lock);
 	} else {
 		/* 目标就在 init_uts_ns 里 —— 那是宿主机本身，拒绝改写，
 		 * 否则一台机器上所有容器跟着变，反而更容易被识别 */
-		pr_info("skylink_uts: pid %ld resolves to init_uts_ns (%px), refusing\n",
+		pr_info("liveapi_uts: pid %ld resolves to init_uts_ns (%px), refusing\n",
 			pid, ns);
 		ret = -EPERM;
 	}
@@ -179,29 +179,29 @@ out:
 	return len;
 }
 
-static const struct proc_ops skylink_ops = {
-	.proc_read  = skylink_read,
-	.proc_write = skylink_write,
+static const struct proc_ops liveapi_ops = {
+	.proc_read  = liveapi_read,
+	.proc_write = liveapi_write,
 };
 
-static int __init skylink_uts_init(void)
+static int __init liveapi_uts_init(void)
 {
-	skylink_proc = proc_create(PROC_NAME, 0600, NULL, &skylink_ops);
-	if (!skylink_proc)
+	liveapi_proc = proc_create(PROC_NAME, 0600, NULL, &liveapi_ops);
+	if (!liveapi_proc)
 		return -ENOMEM;
 	strscpy(last_result, "ready", sizeof(last_result));
-	pr_info("skylink_uts: loaded, interface /proc/%s\n", PROC_NAME);
+	pr_info("liveapi_uts: loaded, interface /proc/%s\n", PROC_NAME);
 	return 0;
 }
 
-static void __exit skylink_uts_exit(void)
+static void __exit liveapi_uts_exit(void)
 {
-	proc_remove(skylink_proc);
-	pr_info("skylink_uts: unloaded\n");
+	proc_remove(liveapi_proc);
+	pr_info("liveapi_uts: unloaded\n");
 }
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("skylink");
+MODULE_AUTHOR("live-api");
 MODULE_DESCRIPTION("Per-namespace UTS release/version rewriter");
-module_init(skylink_uts_init);
-module_exit(skylink_uts_exit);
+module_init(liveapi_uts_init);
+module_exit(liveapi_uts_exit);

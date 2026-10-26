@@ -51,9 +51,9 @@ console.log('[1] 结构')
 ok('以 #cloud-config 开头', yaml.startsWith('#cloud-config\n'))
 ok('含 write_files', yaml.includes('write_files:'))
 ok('含 runcmd', yaml.includes('runcmd:'))
-ok('内核配置写进 /etc/skylink/', yaml.includes('/etc/skylink/kernel.json'))
-ok('凭据文件权限 0600', /path: \/etc\/skylink\/codex-credentials\.json[\s\S]{0,80}permissions: '0600'/.test(yaml))
-ok('systemd 单元存在', yaml.includes('/etc/systemd/system/skylink-kernel.service'))
+ok('内核配置写进 /etc/live-api/', yaml.includes('/etc/live-api/kernel.json'))
+ok('凭据文件权限 0600', /path: \/etc\/live-api\/codex-credentials\.json[\s\S]{0,80}permissions: '0600'/.test(yaml))
+ok('systemd 单元存在', yaml.includes('/etc/systemd/system/live-api-kernel.service'))
 ok('systemd 有 Restart=always', yaml.includes('Restart=always'))
 ok('runcmd 启用了服务', yaml.includes('enable') && yaml.includes('--now'))
 ok('hostname 正确写入', yaml.includes('hostname: ip-10-0-1-11'))
@@ -87,7 +87,7 @@ if (parsed) {
   ok('write_files 有 3 个条目', parsed.files.length === 3, `${parsed.files.length} 个`)
   ok('三个文件路径都正确',
     parsed.files.map((f) => f.path).sort().join(',') ===
-    ['/etc/skylink/codex-credentials.json', '/etc/skylink/kernel.json', '/etc/systemd/system/skylink-kernel.service'].sort().join(','),
+    ['/etc/live-api/codex-credentials.json', '/etc/live-api/kernel.json', '/etc/systemd/system/live-api-kernel.service'].sort().join(','),
     parsed.files.map((f) => f.path).join(','))
   ok('凭据文件权限是 0600',
     parsed.files.find((f) => f.path.endsWith('codex-credentials.json'))?.permissions === '0600')

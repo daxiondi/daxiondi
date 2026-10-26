@@ -343,7 +343,7 @@ export function assignProxies({ slots, proxies, strict = true } = {}) {
 
 /** 极简 HTTP/1.1 GET over 已建立流，返回 { status, body }。 */
 async function httpGetOverStream(stream, host, requestPath) {
-  const req = `GET ${requestPath} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: skylink-egress-check/1\r\nAccept: */*\r\nConnection: close\r\n\r\n`
+  const req = `GET ${requestPath} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: live-api-egress-check/1\r\nAccept: */*\r\nConnection: close\r\n\r\n`
   stream.write(req)
   const chunks = []
   await new Promise((resolve) => {

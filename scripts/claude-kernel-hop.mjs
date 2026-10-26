@@ -33,7 +33,7 @@ const number = (n, d) => {
 
 const slots = number('--slots', 4)
 const wantStream = has('--stream')
-const runDir = arg('--run-dir', '/tmp/skylink-claude-hop')
+const runDir = arg('--run-dir', '/tmp/live-api-claude-hop')
 const token = 'c'.repeat(48)
 
 let pass = 0

@@ -103,9 +103,9 @@ export const STEP_ORDER = Object.freeze([
 ])
 
 /** 默认数据目录：persona 树与转发器配置都落在这里。 */
-export const DEFAULT_DATA_DIR = '/var/lib/skylink-egress'
+export const DEFAULT_DATA_DIR = '/var/lib/live-api-egress'
 /** 默认转发器配置目录（0600，含明文凭据）。 */
-export const DEFAULT_CONF_DIR = '/etc/skylink-egress'
+export const DEFAULT_CONF_DIR = '/etc/live-api-egress'
 /** 默认镜像。 */
 // 默认用带 Claude Code CLI 的镜像。
 //
@@ -115,7 +115,7 @@ export const DEFAULT_CONF_DIR = '/etc/skylink-egress'
 // 只是 health 里 engine 一直不 ready。
 //
 // 保留旧镜像名是为了让显式传 --image 的场景仍能回到最小镜像。
-export const DEFAULT_IMAGE = 'skylink/claude-slot-cli:latest'
+export const DEFAULT_IMAGE = 'live-api/claude-slot-cli:latest'
 
 /**
  * 清理类命令的「目标已经不存在」判定。
@@ -380,7 +380,7 @@ export class SlotOrchestrator {
 
   /** 转发器配置路径。 */
   get confPath() {
-    return path.join(this.confDir, `${this.slot.network || `skylink-eg-${this.slotId.slice(5)}`}.redsocks.conf`)
+    return path.join(this.confDir, `${this.slot.network || `live-api-eg-${this.slotId.slice(5)}`}.redsocks.conf`)
   }
 
   /** persona 落盘目录。 */
@@ -966,7 +966,7 @@ export class SlotOrchestrator {
    * 必须在容器启动之后做：uts_ns 是跟着容器 namespace 走的，
    * 容器一重建就回到宿主内核的值，所以每次 up 都要重新施加。
    *
-   * 依赖宿主机加载了 skylink_uts.ko。没加载时这一步跳过而不是报错 ——
+   * 依赖宿主机加载了 liveapi_uts.ko。没加载时这一步跳过而不是报错 ——
    * 内核模块属于宿主环境准备，不该让单个槽位的启动失败。
    */
   async stepUts() {
@@ -974,17 +974,17 @@ export class SlotOrchestrator {
       const planned = utsForSlot({ vmId: this.slotId, index: slotIndex(this.slot) })
       return {
         ok: true,
-        detail: `[dry-run] 将设 uname -r = ${planned.release}（需宿主加载 skylink_uts.ko）`,
+        detail: `[dry-run] 将设 uname -r = ${planned.release}（需宿主加载 liveapi_uts.ko）`,
       }
     }
 
     // 先确认模块在
-    const mod = await this.executor.run('grep', ['-q', 'skylink_uts', '/proc/modules'], {
+    const mod = await this.executor.run('grep', ['-q', 'liveapi_uts', '/proc/modules'], {
       check: false, quiet: true, timeoutMs: 10_000,
     })
     if (!mod.ok) {
       this.state.uts = { applied: false, reason: 'module_not_loaded' }
-      return { ok: true, detail: '跳过：宿主未加载 skylink_uts.ko（uname 保持宿主值）' }
+      return { ok: true, detail: '跳过：宿主未加载 liveapi_uts.ko（uname 保持宿主值）' }
     }
 
     // 容器主进程 pid
@@ -1011,17 +1011,17 @@ export class SlotOrchestrator {
     })
     const payload = utsWritePayload({ pid, ...uts })
 
-    // 写 /proc/skylink_uts。用 sh -c 是因为要重定向 ——
+    // 写 /proc/liveapi_uts。用 sh -c 是因为要重定向 ——
     // 模块只提供 write 接口，没有 ioctl。
     const w = await this.executor.run(
-      'sh', ['-c', `printf '%s\n' ${JSON.stringify(payload)} > /proc/skylink_uts`],
+      'sh', ['-c', `printf '%s\n' ${JSON.stringify(payload)} > /proc/liveapi_uts`],
       { check: false, quiet: true, timeoutMs: 15_000 },
     )
     if (!w.ok) {
       this.state.uts = { applied: false, reason: 'write_failed', uts }
       return {
         ok: false,
-        detail: `写 /proc/skylink_uts 失败: ${(w.stderr || '').trim().slice(0, 120)}`,
+        detail: `写 /proc/liveapi_uts 失败: ${(w.stderr || '').trim().slice(0, 120)}`,
       }
     }
 
@@ -1328,7 +1328,7 @@ export class SlotOrchestrator {
       { step: 7, name: 'persona', action: `落盘 persona 文件到 ${this.personaDir}（hostname=${this.personaHostname || '(平台缺省)'}，TZ=${this.timezone || '待探测'}）`, command: `dockerArgsForPersona(vmId=${this.container})` },
       { step: 8, name: 'container', action: `启动容器 ${this.container}（镜像 ${this.image}，挂载 persona 只读）`, command: 'docker run -d --network … --mac-address … --cpuset-cpus … -e TZ=… -v …' },
       { step: 9, name: 'timezone', action: `容器内二次校正时区（已推导 ${this.timezone || '待探测'}）`, command: 'docker exec … ln -sf /usr/share/zoneinfo/<tz> /etc/localtime' },
-      { step: 10, name: 'uts', action: `设 uname -r = ${utsForSlot({ vmId: this.container, index: slotIndex(this.slot) }).release}（需宿主 skylink_uts.ko）`, command: `echo "<pid> ${utsForSlot({ vmId: this.container, index: slotIndex(this.slot) }).release} <version>" > /proc/skylink_uts` },
+      { step: 10, name: 'uts', action: `设 uname -r = ${utsForSlot({ vmId: this.container, index: slotIndex(this.slot) }).release}（需宿主 liveapi_uts.ko）`, command: `echo "<pid> ${utsForSlot({ vmId: this.container, index: slotIndex(this.slot) }).release} <version>" > /proc/liveapi_uts` },
       { step: 11, name: 'verify', action: '验证出口 IP / DNS / 直连隔离 + persona 自检', command: 'docker exec … node -e …' },
     ]
   }

@@ -714,5 +714,52 @@ async function request({ port, route, body }) {
   }
 }
 
+// ─────────────── 手动刷新额度 park ───────────────
+//
+// 自动复查只在有请求进来时发生，没有流量时被 park 的号会一直等到 reset。
+// 上游窗口可能提前重置，所以需要一个能主动触发的入口。
+{
+  const now = Date.now()
+  const win = {
+    a1: { '5h': { usedPct: 100, resetAt: now + 3600e3 } },
+    a2: { '5h': { usedPct: 100, resetAt: now + 3600e3 } },
+  }
+  const sch = new AccountScheduler(
+    [{ id: 'a1' }, { id: 'a2' }],
+    { quota: { windows: (id) => win[id] }, logger: null },
+  )
+
+  // 先把两个号都 park 掉
+  let parked = false
+  try { sch.select({ sessionId: 'q1' }) } catch (e) { parked = e.code === 'quota_exhausted' }
+  eq('两号打满后 select 报 quota_exhausted', parked, true)
+
+  // 刷新：读数仍满 → 全部保留
+  const r1 = sch.refreshQuotaParks()
+  eq('刷新遍历了两个号', r1.checked, 2)
+  eq('读数未恢复时不解除', r1.resumed.length, 0)
+  eq('两个号仍在 park', r1.stillParked.length, 2)
+  ok('stillParked 带剩余秒数',
+    r1.stillParked.every((x) => Number.isFinite(x.remainingSecs) && x.remainingSecs > 0),
+    JSON.stringify(r1.stillParked))
+
+  // 让 a1 恢复后再刷新 → 只解除 a1
+  win.a1 = { '5h': { usedPct: 10, resetAt: now + 3600e3 } }
+  const r2 = sch.refreshQuotaParks()
+  eq('恢复的号被解除', r2.resumed, ['a1'])
+  eq('未恢复的号保留', r2.stillParked.map((x) => x.account), ['a2'])
+  eq('解除后立刻可选中', sch.select({ sessionId: 'q2' }).account.id, 'a1')
+
+  // 到期自动解除：把 reset 设到过去
+  win.a2 = { '5h': { usedPct: 100, resetAt: now - 1000 } }
+  const r3 = sch.refreshQuotaParks()
+  eq('reset 已过的号被解除', r3.resumed, ['a2'])
+
+  // 没有 park 时刷新是安全的空操作
+  const empty = sch.refreshQuotaParks()
+  eq('无 park 时 checked 为 0', empty.checked, 0)
+  eq('无 park 时 resumed 为空', empty.resumed, [])
+}
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 process.exit(fail ? 1 : 0)

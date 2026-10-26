@@ -1,5 +1,5 @@
 #!/bin/sh
-# skylink_uts 内核模块安装脚本。
+# liveapi_uts 内核模块安装脚本。
 #
 # 为什么需要这个：模块用 insmod 加载后只活到下次重启。机器一重启，
 # 20 个槽的 uname -r 全部退回宿主值 —— 而且没有任何报错，
@@ -9,7 +9,7 @@
 # 发行版（尤其容器化宿主）不生效，systemd 是确定的。
 set -e
 
-MOD=skylink_uts
+MOD=liveapi_uts
 SRC_DIR=$(cd "$(dirname "$0")" && pwd)
 KDIR=/lib/modules/$(uname -r)/build
 
@@ -39,16 +39,16 @@ install -m 0644 "$SRC_DIR/$MOD.ko" "/lib/modules/$(uname -r)/extra/$MOD.ko"
 depmod -a
 
 echo "[3/4] 写 systemd unit"
-cat > /etc/systemd/system/skylink-uts.service <<UNIT
+cat > /etc/systemd/system/live-api-uts.service <<UNIT
 [Unit]
-Description=skylink UTS spoofing kernel module
+Description=live-api UTS spoofing kernel module
 After=local-fs.target
 Before=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# 先卸再装：重装场景下旧模块还占着 /proc/skylink_uts，
+# 先卸再装：重装场景下旧模块还占着 /proc/liveapi_uts，
 # 直接 modprobe 会返回 "already loaded" 并让 unit 失败。
 ExecStartPre=-/sbin/modprobe -r $MOD
 ExecStart=/sbin/modprobe $MOD
@@ -60,14 +60,14 @@ UNIT
 
 echo "[4/4] 启用并启动"
 systemctl daemon-reload
-systemctl enable skylink-uts.service >/dev/null 2>&1
-systemctl restart skylink-uts.service
+systemctl enable live-api-uts.service >/dev/null 2>&1
+systemctl restart live-api-uts.service
 
 if lsmod | grep -q "^$MOD"; then
   echo "完成：$MOD 已加载，接口 /proc/$MOD"
-  echo "  重启后自动加载：systemctl is-enabled skylink-uts"
+  echo "  重启后自动加载：systemctl is-enabled live-api-uts"
 else
   echo "失败：模块未加载" >&2
-  systemctl status skylink-uts.service --no-pager -l 2>&1 | tail -10 >&2
+  systemctl status live-api-uts.service --no-pager -l 2>&1 | tail -10 >&2
   exit 1
 fi

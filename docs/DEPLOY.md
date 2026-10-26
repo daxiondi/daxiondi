@@ -301,10 +301,10 @@ node src/runtime/cli.mjs plan --limit 2
 代理配置: 0 条（1 条警告）
 槽位     network        subnet          网关         容器IP       tcp    dns    代理
 ───────  ─────────────  ──────────────  ───────────  ───────────  ─────  ─────  ────
-slot-01  skylink-eg-01  10.213.1.0/24   10.213.1.1   10.213.1.2   21000  21001  -
-slot-02  skylink-eg-02  10.213.2.0/24   10.213.2.1   10.213.2.2   21002  21003  -
+slot-01  live-api-eg-01  10.213.1.0/24   10.213.1.1   10.213.1.2   21000  21001  -
+slot-02  live-api-eg-02  10.213.2.0/24   10.213.2.1   10.213.2.2   21002  21003  -
 ...
-slot-20  skylink-eg-20  10.213.20.0/24  10.213.20.1  10.213.20.2  21038  21039  -
+slot-20  live-api-eg-20  10.213.20.0/24  10.213.20.1  10.213.20.2  21038  21039  -
 
 共 20 个槽位；8 步启动顺序：preflight → network → iptables → redsocks → dnsfwd → persona → container → verify
 预计命令数：20 槽位 × 8 步（每步 1-N 条命令）
@@ -326,23 +326,23 @@ node src/runtime/cli.mjs slot slot-01
 实际输出：
 
 ```text
-槽位 slot-01  网络 skylink-eg-01  子网 10.213.1.0/24
+槽位 slot-01  网络 live-api-eg-01  子网 10.213.1.0/24
 代理 （未绑定）  容器 claude-slot-01
 
 ── slot-01 ──
    1. preflight  检查 OS/root/iptables/redsocks/docker/netfilter/KVM
       $ iptables -t nat -L -n; docker info
-   2. network    建 docker network skylink-eg-01（10.213.1.0/24，网关 10.213.1.1，网桥 skeg01）
-      $ docker network create --driver bridge --subnet 10.213.1.0/24 --gateway 10.213.1.1 --opt com.docker.network.bridge.name=skeg01 --opt com.docker.network.bridge.enable_ip_masquerade=false --opt com.docker.network.bridge.enable_icc=true --opt com.docker.network.enable_ipv6=false --label skylink.egress.slot=slot-01 skylink-eg-01
+   2. network    建 docker network live-api-eg-01（10.213.1.0/24，网关 10.213.1.1，网桥 skeg01）
+      $ docker network create --driver bridge --subnet 10.213.1.0/24 --gateway 10.213.1.1 --opt com.docker.network.bridge.name=skeg01 --opt com.docker.network.bridge.enable_ip_masquerade=false --opt com.docker.network.bridge.enable_icc=true --opt com.docker.network.enable_ipv6=false --label live-api.egress.slot=slot-01 live-api-eg-01
    3. iptables   应用 SKEG01 链：tcp→:21000、tcp/53→:21001、FORWARD DROP
       $ iptables -t nat -N SKEG01 …
    4. redsocks   启动 redsocks，监听 10.213.1.1:21000，上游 （未绑定）
-      $ redsocks -c /etc/skylink-egress/skylink-eg-01.redsocks.conf
+      $ redsocks -c /etc/live-api-egress/live-api-eg-01.redsocks.conf
    5. dnsfwd     启动 DNS 转发器，监听 10.213.1.1:21001（TCP over SOCKS5 → 8.8.8.8:53）
       $ dnsfwd listenHost=10.213.1.1 port=21001
-   6. persona    落盘 persona 文件到 /var/lib/skylink-egress/persona/slot-01
+   6. persona    落盘 persona 文件到 /var/lib/live-api-egress/persona/slot-01
       $ dockerArgsForPersona(vmId=claude-slot-01)
-   7. container  启动容器 claude-slot-01（镜像 skylink/claude-slot:latest，挂载 persona 只读）
+   7. container  启动容器 claude-slot-01（镜像 live-api/claude-slot:latest，挂载 persona 只读）
       $ docker run -d --network … --mac-address … -v …
    8. verify     验证出口 IP / DNS / 直连隔离 + persona 自检
       $ docker exec … node -e …
@@ -659,15 +659,15 @@ node --version                     # >= 22
 
 # ── 1. 凭据：二选一 ──
 # 1a. 凭据文件
-mkdir -p ~/.skylink
-cat > ~/.skylink/codex.json <<'JSON'
+mkdir -p ~/.live-api
+cat > ~/.live-api/codex.json <<'JSON'
 {
   "accounts": [
     { "id": "acc-01", "access_token": "REPLACE_ME", "refresh_token": "REPLACE_ME", "expires_at": 0 }
   ]
 }
 JSON
-export CODEX_CREDENTIAL_PATH=$HOME/.skylink/codex.json
+export CODEX_CREDENTIAL_PATH=$HOME/.live-api/codex.json
 
 # ── 2. 校验凭据能被读进来 ──
 node -e "
@@ -905,8 +905,8 @@ docker network create \
   --opt com.docker.network.bridge.enable_ip_masquerade=false \
   --opt com.docker.network.bridge.enable_icc=true \
   --opt com.docker.network.enable_ipv6=false \
-  --label skylink.egress.slot=slot-01 \
-  skylink-eg-01
+  --label live-api.egress.slot=slot-01 \
+  live-api-eg-01
 ```
 
 `enable_ip_masquerade=false` 是关键：开了 NAT 之后容器的包会被 SNAT 成宿主机 IP，
@@ -953,10 +953,10 @@ redsocks {
 ```
 
 落盘到 `<confDir>/<network>.redsocks.conf`，**mode 0600**（含明文凭据）。默认
-`confDir = /etc/skylink-egress`。启动：
+`confDir = /etc/live-api-egress`。启动：
 
 ```bash
-redsocks -c /etc/skylink-egress/skylink-eg-01.redsocks.conf
+redsocks -c /etc/live-api-egress/live-api-eg-01.redsocks.conf
 ```
 
 启动后 `stepRedsocks` 用 `waitForListening` 做三态确认（起来 / 没起来 / 超时）。
@@ -986,13 +986,13 @@ UDP 53 也做了重定向，但部分解析器只走 UDP 时会绕开 SOCKS5。
 
 ### 5.7 第 6 步：persona
 
-每槽位一套身份，落盘到 `/var/lib/skylink-egress/persona/slot-01`。
+每槽位一套身份，落盘到 `/var/lib/live-api-egress/persona/slot-01`。
 
 ```bash
 node src/persona/cli.mjs apply \
   --platform linux \
   --vm-id claude-slot-01 \
-  --root /var/lib/skylink-egress/persona/slot-01
+  --root /var/lib/live-api-egress/persona/slot-01
 ```
 
 KVM 形态额外需要 SMBIOS 四张表（`src/persona/kvm-spec.mjs`）。先干跑看要写什么：
@@ -1007,14 +1007,14 @@ node src/persona/cli.mjs apply --platform linux --vm-id claude-slot-01 \
 ```bash
 docker run -d \
   --name claude-slot-01 \
-  --network skylink-eg-01 \
+  --network live-api-eg-01 \
   --ip 10.213.1.2 \
   --mac-address <persona 生成的 MAC> \
-  -v /var/lib/skylink-egress/persona/slot-01:/persona:ro \
-  skylink/claude-slot:latest
+  -v /var/lib/live-api-egress/persona/slot-01:/persona:ro \
+  live-api/claude-slot:latest
 ```
 
-镜像默认 `skylink/claude-slot:latest`，`--image` 可覆盖。persona 目录**只读**挂载。
+镜像默认 `live-api/claude-slot:latest`，`--image` 可覆盖。persona 目录**只读**挂载。
 
 ### 5.9 第 8 步：verify
 
@@ -1633,8 +1633,8 @@ return ['-v', `${mount.hostPath}:${mount.containerPath}:${ro ? 'ro' : 'rw'}`]
 
 #### 槽镜像必须带 CLI
 
-`DEFAULT_IMAGE` 从 `skylink/claude-slot:latest` 改成
-`skylink/claude-slot-cli:latest`。
+`DEFAULT_IMAGE` 从 `live-api/claude-slot:latest` 改成
+`live-api/claude-slot-cli:latest`。
 
 这么改的原因很实际：vm2api 的内核契约是 spawn 一个 CLI 子进程，
 **没有 claude 二进制的镜像跑不了 Claude 链路**。之前默认是不含 CLI 的
@@ -1811,7 +1811,7 @@ runc create failed: check proc-safety of /proc/sys/kernel/osrelease:
 能改其中的 `release`/`version`（`sethostname` 只能改 `nodename`/`domainname`）。
 这条路只能走内核模块。
 
-#### 内核模块：native/lkm/skylink_uts.c
+#### 内核模块：native/lkm/liveapi_uts.c
 
 ```bash
 sh native/lkm/install.sh    # 编译 + 装到 /lib/modules/.../extra + systemd 自启
@@ -1821,8 +1821,8 @@ sh native/lkm/uninstall.sh
 接口：
 
 ```bash
-echo "<pid> <release> <version>" > /proc/skylink_uts
-cat /proc/skylink_uts     # 回读
+echo "<pid> <release> <version>" > /proc/liveapi_uts
+cat /proc/liveapi_uts     # 回读
 ```
 
 它按 pid 找到目标容器的 `uts_ns` 改写。因为每个容器有独立的 UTS namespace，
@@ -1842,7 +1842,7 @@ slot-20: 5.15.0-141-generic
 **1. `find_task_by_vpid` 在 5.15 没有 EXPORT_SYMBOL**
 
 ```text
-ERROR: modpost: "find_task_by_vpid" [skylink_uts.ko] undefined!
+ERROR: modpost: "find_task_by_vpid" [liveapi_uts.ko] undefined!
 ```
 
 符号在 `/proc/kallsyms` 里能看到，但没导出给模块。改用
@@ -2207,9 +2207,9 @@ Codex 走 Docker 时，镜像是我们自己构建的，内核就在里面。
 
 | 文件 | 权限 | 作用 |
 |---|---|---|
-| `/etc/skylink/kernel.json` | 0600 | 内核配置（socket / token / 凭据路径） |
-| `/etc/skylink/codex-credentials.json` | 0600 | Codex 凭据 |
-| `/etc/systemd/system/skylink-kernel.service` | 0644 | systemd 单元 |
+| `/etc/live-api/kernel.json` | 0600 | 内核配置（socket / token / 凭据路径） |
+| `/etc/live-api/codex-credentials.json` | 0600 | Codex 凭据 |
+| `/etc/systemd/system/live-api-kernel.service` | 0644 | systemd 单元 |
 
 `runcmd` 里 `systemctl enable --now` 拉起，`Restart=always` 保证崩了会自愈
 ——否则内核挂了没人管，面板上看着还是"运行中"，是最难发现的一种静默失效。
@@ -2504,7 +2504,7 @@ sys.exit(1 if fatal else 0)
 node src/egress/cli.mjs plan --config config/proxies.json
 
 # ── 4. 生成产物 ──
-sudo node src/egress/cli.mjs emit --config config/proxies.json --out /etc/skylink-egress
+sudo node src/egress/cli.mjs emit --config config/proxies.json --out /etc/live-api-egress
 
 # ── 5. 演练（不执行）──
 sudo node src/runtime/cli.mjs up --dry-run --all
@@ -2539,7 +2539,7 @@ sudo node src/runtime/cli.mjs status
 
 #### 7.2.1 systemd 单元文件
 
-`/etc/systemd/system/skylink-fleet.service`：
+`/etc/systemd/system/live-api-fleet.service`：
 
 ```ini
 [Unit]
@@ -2581,10 +2581,10 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now skylink-fleet
-sudo systemctl status skylink-fleet --no-pager
+sudo systemctl enable --now live-api-fleet
+sudo systemctl status live-api-fleet --no-pager
 # 确认 20 个转发器真的挂住了
-sudo journalctl -u skylink-fleet -n 30 --no-pager | grep '持有'
+sudo journalctl -u live-api-fleet -n 30 --no-pager | grep '持有'
 ```
 
 **`TimeoutStopSec=300` 不能省。** 默认 90 秒时，systemd 会在 `downAll()`
@@ -2626,7 +2626,7 @@ sudo node src/runtime/cli.mjs down --slot slot-01
 
 # 确认清干净
 docker ps -a --filter 'name=claude-slot-' --format '{{.Names}}\t{{.Status}}'
-docker network ls --filter 'name=skylink-eg-' --format '{{.Name}}'
+docker network ls --filter 'name=live-api-eg-' --format '{{.Name}}'
 sudo iptables -t nat -L -n | grep -E '^SKEG' || echo '无残留链'
 pgrep -af redsocks || echo '无残留 redsocks'
 ```
@@ -2634,7 +2634,7 @@ pgrep -af redsocks || echo '无残留 redsocks'
 `down` 不清 docker 镜像。镜像要单独清：
 
 ```bash
-docker rmi skylink/claude-slot:latest
+docker rmi live-api/claude-slot:latest
 ```
 
 ### 7.6 上线后第一件事
@@ -2690,10 +2690,10 @@ journalctl -u redsocks -n 100 --no-pager
 # 或者直接看 redsocks 自己的输出（daemon = on 时进 syslog）
 
 # 内核日志（前台启动时直接看 stdout/stderr）
-node src/kernel/server.mjs 2>&1 | tee /var/log/skylink-kernel.log
+node src/kernel/server.mjs 2>&1 | tee /var/log/live-api-kernel.log
 
 # 结构化事件
-grep -E '\[slot-[0-9]+\]' /var/log/skylink-up.log | tail -100
+grep -E '\[slot-[0-9]+\]' /var/log/live-api-up.log | tail -100
 ```
 
 ### 8.5 常用巡检
@@ -2720,7 +2720,7 @@ pgrep -c redsocks
 
 ```bash
 node src/egress/cli.mjs verify-config
-sudo node src/egress/cli.mjs emit --config config/proxies.json --out /etc/skylink-egress
+sudo node src/egress/cli.mjs emit --config config/proxies.json --out /etc/live-api-egress
 sudo node src/runtime/cli.mjs repair --slot <改动的槽位>
 ```
 
@@ -2804,7 +2804,7 @@ import('./src/egress/verify.mjs').then(async m=>{
 
 | 检查 | 命令 | 期望 |
 |---|---|---|
-| docker network 的 masquerade 关了没 | `docker network inspect skylink-eg-01 -f '{{json .Options}}'` | 含 `enable_ip_masquerade:false` |
+| docker network 的 masquerade 关了没 | `docker network inspect live-api-eg-01 -f '{{json .Options}}'` | 含 `enable_ip_masquerade:false` |
 | iptables 链在不在 | `sudo iptables -t nat -L SKEG01 -n` | 有 REDIRECT 规则 |
 | PREROUTING 跳转在不在 | `sudo iptables -t nat -L PREROUTING -n \| grep SKEG01` | 有一行 |
 | redsocks 在听吗 | `ss -lntp \| grep 21000` | 有监听 |
@@ -2851,10 +2851,10 @@ dig @10.213.1.1 -p 21001 api.anthropic.com +tcp
 
 ```bash
 # ① 手动跑一遍看真实报错（-c 指定配置）
-redsocks -c /etc/skylink-egress/skylink-eg-01.redsocks.conf
+redsocks -c /etc/live-api-egress/live-api-eg-01.redsocks.conf
 
 # ② 配置有没有落盘
-ls -l /etc/skylink-egress/*.redsocks.conf
+ls -l /etc/live-api-egress/*.redsocks.conf
 
 # ③ 端口被占
 ss -lntp | grep 21000

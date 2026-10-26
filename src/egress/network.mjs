@@ -139,16 +139,16 @@ export function normalizeSlotId(slotId) {
   return `slot-${String(n).padStart(2, '0')}`
 }
 
-/** docker network 名：skylink-eg-<nn>。 */
+/** docker network 名：live-api-eg-<nn>。 */
 export function networkNameFor(slotId) {
   const id = normalizeSlotId(slotId)
-  return id ? `skylink-eg-${id.slice(5)}` : ''
+  return id ? `live-api-eg-${id.slice(5)}` : ''
 }
 
 /** Linux 网桥接口名，上限 15 字符。 */
 export function bridgeNameFor(slotId) {
   const id = normalizeSlotId(slotId)
-  return id ? `skeg${id.slice(5)}` : ''
+  return id ? `laeg${id.slice(5)}` : ''
 }
 
 /** nat 表链名，上限 28 字符。 */
@@ -296,7 +296,7 @@ export function createNetworkArgs({ slot }) {
     '--opt',
     'com.docker.network.enable_ipv6=false',
     '--label',
-    `skylink.egress.slot=${plan.slotId || ''}`,
+    `live-api.egress.slot=${plan.slotId || ''}`,
     name,
   ]
   return { ok: true, args, name, bridge: br, subnet }
@@ -510,7 +510,7 @@ export function redsocksConfig({ slot, proxy, listenPort, socks5Detour = null } 
   return {
     ok: true,
     content: `${lines.join('\n')}\n`,
-    path: `/etc/skylink-egress/${plan.network || networkNameFor(plan.slotId)}.redsocks.conf`,
+    path: `/etc/live-api-egress/${plan.network || networkNameFor(plan.slotId)}.redsocks.conf`,
     unsafeCred,
     upstream: { host: p.host, port: Number(p.port), type: 'socks5', auth: Boolean(p.username) },
   }
@@ -583,7 +583,7 @@ export function tun2socksSpec({ slot, proxy } = {}) {
  * 不含 -e HTTPS_PROXY：透明代理下 CLI 不需要、也不应该知道出口在哪。
  * --dns 给公网解析器 + use-vc，配合 tcp/53 规则，解析必然经过代理。
  */
-export function dockerNetworkArgs({ slot, proxy = null, image = 'skylink/claude-slot-cli:latest', containerName } = {}) {
+export function dockerNetworkArgs({ slot, proxy = null, image = 'live-api/claude-slot-cli:latest', containerName } = {}) {
   const plan = slot || {}
   const name = plan.network || networkNameFor(plan.slotId)
   const pid = proxy?.id || 'unbound'
@@ -620,13 +620,13 @@ export function dockerNetworkArgs({ slot, proxy = null, image = 'skylink/claude-
     '--security-opt',
     'no-new-privileges',
     '--label',
-    `skylink.slot=${plan.slotId || ''}`,
+    `live-api.slot=${plan.slotId || ''}`,
     '--label',
-    `skylink.egress.network=${name}`,
+    `live-api.egress.network=${name}`,
     '--label',
-    `skylink.egress.proxy=${pid}`,
+    `live-api.egress.proxy=${pid}`,
     '--label',
-    `skylink.egress.subnet=${plan.subnet || ''}`,
+    `live-api.egress.subnet=${plan.subnet || ''}`,
   ]
   if (plan.containerIp) args.push('--ip', plan.containerIp)
   args.push(image)

@@ -359,7 +359,7 @@ export function dockerArgsForPersona(p = {}) {
   // 能做的原因：/proc/cpuinfo 和 /proc/meminfo 是普通 procfs 文件，
   // runc 允许在它们上面建挂载点（实测）。而 /proc/sys/kernel/* 和
   // /proc/version 不行 —— runc 明确拒绝 "inside /proc" 的挂载，
-  // 那部分必须走 LKM（见 native/lkm/skylink_uts.c）。
+  // 那部分必须走 LKM（见 native/lkm/liveapi_uts.c）。
   // /etc/os-release 不需要在这里另建文件 —— persona 树里本来就有
   // etc/os-release，buildPersona 已按槽位生成了内容（发行版 + 内核自洽）。
   // 之前我在这里又 push 了一份同路径的文件，结果 materialize 时

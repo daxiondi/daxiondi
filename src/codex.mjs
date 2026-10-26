@@ -784,6 +784,53 @@ export class AccountScheduler {
    * 到期的 park **就地清掉**并返回 false：解除条件是「时间到了」，
    * 不需要任何人来重置状态，这正是 park 是软约束的含义。
    */
+  /**
+   * 强制复查所有被额度 park 的账号，读数已恢复的当场解除。
+   *
+   * 为什么需要手动入口：`canTake` 只在**有请求进来时**才复查，
+   * 也就是说没有流量时被 park 的号会一直等到 reset。
+   * 真实场景里上游窗口可能提前重置，或者运维刚调过配额 ——
+   * 这时候应该能主动点一下刷新，而不是干等。
+   *
+   * 与自动复查的区别：自动复查只看当前被调度到的那个号；
+   * 这里遍历全部 park 的号，并返回结构化的结果供面板展示。
+   *
+   * @returns {{checked:number, resumed:string[], stillParked:Array<{account:string, reason:string, resumeAt:number|null, remainingSecs:number}>}}
+   */
+  refreshQuotaParks() {
+    const t = this.now()
+    const resumed = []
+    const stillParked = []
+    for (const [accountId, park] of [...this.parkedUntil.entries()]) {
+      // 已过期的直接清掉，与 isQuotaParked 的软解除保持一致
+      if (park?.until != null && t >= park.until) {
+        this.parkedUntil.delete(accountId)
+        resumed.push(accountId)
+        this.log('info', { account: accountId, reason: 'park_expired' },
+          'quota park lifted: reset time reached')
+        continue
+      }
+      // 未到期：复查读数。读数恢复就提前解除
+      const verdict = this.quotaVerdict(accountId)
+      if (verdict && verdict.allowed !== false) {
+        this.parkedUntil.delete(accountId)
+        resumed.push(accountId)
+        this.log('info', { account: accountId, reason: 'manual_refresh' },
+          'quota park lifted: reading below threshold after manual refresh')
+        continue
+      }
+      stillParked.push({
+        account: accountId,
+        reason: park?.reason || 'quota_exhausted',
+        resumeAt: Number.isFinite(Number(park?.until)) ? Number(park.until) : null,
+        remainingSecs: Number.isFinite(Number(park?.until))
+          ? Math.max(0, Math.ceil((Number(park.until) - t) / 1000))
+          : null,
+      })
+    }
+    return { checked: resumed.length + stillParked.length, resumed, stillParked }
+  }
+
   isQuotaParked(accountId, now = this.now()) {
     const park = this.parkedUntil.get(accountId)
     if (!park) return false

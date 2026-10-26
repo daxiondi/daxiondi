@@ -27,7 +27,7 @@ const arg = (n, d = null) => {
 
 const credentialPath = path.resolve(arg('--credential', path.join(ROOT, 'config/codex-credential.json')))
 const vm2apiRoot = path.resolve(arg('--vm2api', path.join(ROOT, '../vm2api')))
-const runDir = arg('--run-dir', '/tmp/skylink-vm2api-hop')
+const runDir = arg('--run-dir', '/tmp/live-api-vm2api-hop')
 const token = 'a'.repeat(48)
 
 let pass = 0

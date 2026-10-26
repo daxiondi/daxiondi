@@ -1,5 +1,5 @@
 {
-  "$schema": "https://skylink.local/schemas/proxies.json",
+  "$schema": "https://live-api.local/schemas/proxies.json",
   "_readme": [
     "槽位固定 20 个，一个代理只能给一个槽位。请填满 20 条，或接受部分槽位无出口。",
     "host 请填真实 SOCKS5 地址。请填 example.com / 1.2.3.4 / 192.0.2.x 会被识别为占位符并跳过真实拨号。",

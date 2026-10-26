@@ -764,6 +764,25 @@ export function createCodexHandler(opts = {}) {
    * 理论上可救"，如果没有注入 refreshFn，这个账号实际发不出请求。
    * 只按 state 名判断会给出 200 的假健康，把问题推到第一个真实请求上。
    */
+  /**
+   * 手动刷新额度 park。
+   *
+   * 为什么要有这个端点：自动复查只在有请求进来时发生，
+   * 没有流量时被 park 的号会一直等到 reset。上游窗口可能提前重置，
+   * 运维也可能刚调过配额 —— 这时候需要一个能主动触发的入口。
+   */
+  function handleQuotaRefresh(req, res) {
+    const result = typeof scheduler.refreshQuotaParks === 'function'
+      ? scheduler.refreshQuotaParks()
+      : { checked: 0, resumed: [], stillParked: [], unsupported: true }
+    // 刷新后把最新视图一起返回，省一次请求
+    return sendJson(res, 200, {
+      ...result,
+      quota: typeof scheduler.quotaSnapshot === 'function' ? scheduler.quotaSnapshot() : null,
+      accounts: manager.snapshot(),
+    })
+  }
+
   function handleHealth(req, res) {
     const snap = manager.snapshot()
     const usable = (state) => state === 'fresh' || state === 'refreshable' || state === 'refresh_window'
@@ -806,6 +825,16 @@ export function createCodexHandler(opts = {}) {
         return true
       }
       handleHealth(req, res)
+      return true
+    }
+    if (p === '/codex/quota/refresh') {
+      // POST：有副作用（会解除 park），不用 GET 避免被爬虫/预取误触发
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST' })
+        res.end()
+        return true
+      }
+      handleQuotaRefresh(req, res)
       return true
     }
     if (p === '/v1/responses') {

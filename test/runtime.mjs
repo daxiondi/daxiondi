@@ -115,7 +115,7 @@ async function throws(name, fn) {
   return false
 }
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'skylink-runtime-'))
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'live-api-runtime-'))
 
 /**
  * 每个用例独立的落盘目录。
@@ -716,7 +716,7 @@ console.log('── 3. SlotOrchestrator ──')
   // 容器参数
   const run = ex.calls[idxDockerRun]
   ok('容器参数含 --network', run.argv.includes('--network'))
-  ok('容器参数含 skylink-eg-01', run.argv.includes('skylink-eg-01'))
+  ok('容器参数含 live-api-eg-01', run.argv.includes('live-api-eg-01'))
   ok('容器参数含 --dns 8.8.8.8', run.argv.includes('8.8.8.8'))
   ok('容器参数含 use-vc', run.argv.includes('use-vc'))
   ok('容器参数不含 HTTPS_PROXY', !run.argv.some((a) => String(a).startsWith('HTTPS_PROXY')))
@@ -1292,8 +1292,8 @@ function makeBlueprint(count) {
   eq('每个槽位 11 步', preview[0].steps.length, 11)
   eq('20 槽位共 220 步', preview.reduce((n, s) => n + s.steps.length, 0), 220)
   eq('preview 不执行命令', ex.executed, 0)
-  includes('第 1 槽位 network 步骤含 skylink-eg-01', preview[0].steps[1].command, 'skylink-eg-01')
-  includes('第 20 槽位 network 步骤含 skylink-eg-20', preview[19].steps[1].command, 'skylink-eg-20')
+  includes('第 1 槽位 network 步骤含 live-api-eg-01', preview[0].steps[1].command, 'live-api-eg-01')
+  includes('第 20 槽位 network 步骤含 live-api-eg-20', preview[19].steps[1].command, 'live-api-eg-20')
 }
 
 // 舰队 downAll
@@ -1640,8 +1640,8 @@ console.log('── 7. CLI 计划契约 ──')
   // 链名/网桥名
   includes('slot-01 iptables 链 SKEG01', preview[0].steps[2].action, 'SKEG01')
   includes('slot-20 iptables 链 SKEG20', preview[19].steps[2].action, 'SKEG20')
-  includes('slot-01 网桥 skeg01', preview[0].steps[1].action, 'skeg01')
-  includes('slot-20 网桥 skeg20', preview[19].steps[1].action, 'skeg20')
+  includes('slot-01 网桥 laeg01', preview[0].steps[1].action, 'laeg01')
+  includes('slot-20 网桥 laeg20', preview[19].steps[1].action, 'laeg20')
   // 子网逐槽位递增
   includes('slot-01 子网 10.213.1.0/24', preview[0].steps[1].action, '10.213.1.0/24')
   includes('slot-20 子网 10.213.20.0/24', preview[19].steps[1].action, '10.213.20.0/24')
@@ -1838,7 +1838,7 @@ console.log('── 9. 清理幂等 ──')
   const ex = new FakeExecutor({
     behavior: (cmd, args, host) => {
       if (cmd === 'docker' && args[0] === 'network' && args[1] === 'rm') {
-        return { code: 1, stderr: 'Error response from daemon: network skylink-eg-01 has active endpoints' }
+        return { code: 1, stderr: 'Error response from daemon: network live-api-eg-01 has active endpoints' }
       }
       return host(cmd, args)
     },
@@ -1854,7 +1854,7 @@ console.log('── 9. 清理幂等 ──')
   const ex = new FakeExecutor({
     behavior: (cmd, args, host) => {
       if (cmd === 'docker' && args[0] === 'rm') return { code: 0, stdout: 'claude-slot-01' }
-      if (cmd === 'docker' && args[0] === 'network' && args[1] === 'rm') return { code: 0, stdout: 'skylink-eg-01' }
+      if (cmd === 'docker' && args[0] === 'network' && args[1] === 'rm') return { code: 0, stdout: 'live-api-eg-01' }
       if (cmd === 'iptables') return { code: 0 }
       return host(cmd, args)
     },

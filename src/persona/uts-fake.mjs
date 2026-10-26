@@ -10,7 +10,7 @@
  * （"cannot be mounted because it is inside /proc"），/proc/version 和
  * /proc/sys/kernel/* 都挂不上。这条路走不通，只能内核层。
  *
- * 实测：一个模块 + 每槽写一次 /proc/skylink_uts，20 个槽 uname -r 全不同，
+ * 实测：一个模块 + 每槽写一次 /proc/liveapi_uts，20 个槽 uname -r 全不同，
  * 互不影响，宿主机也不受影响。
  */
 
@@ -132,7 +132,7 @@ export function utsForSlot({ vmId = '', index = 0, release = null, distro = null
   return { release: rel, version }
 }
 
-/** 拼成传给 /proc/skylink_uts 的一行：<pid> <release> <version> */
+/** 拼成传给 /proc/liveapi_uts 的一行：<pid> <release> <version> */
 export function utsWritePayload({ pid, release, version }) {
   if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) {
     throw new Error(`utsWritePayload: invalid pid ${pid}`)

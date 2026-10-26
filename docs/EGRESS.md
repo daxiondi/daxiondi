@@ -23,7 +23,7 @@
 ```text
 宿主机 (Linux, docker)
 │
-├── docker network: skylink-eg-01   10.213.1.0/24   网关 10.213.1.1   网桥 skeg01
+├── docker network: live-api-eg-01   10.213.1.0/24   网关 10.213.1.1   网桥 skeg01
 │   │
 │   │   ┌───────────────────────────────────────────────────────────────┐
 │   │   │ 容器 claude-slot-01   10.213.1.2    账号 #01 的 Claude CLI    │
@@ -48,20 +48,20 @@
 │   │                    ▼
 │   └──────────► SOCKS5 代理 A（住宅出口，预期出口 IP 47.88.12.34）
 │
-├── docker network: skylink-eg-02   10.213.2.0/24   ──► SOCKS5 代理 B
-├── docker network: skylink-eg-03   10.213.3.0/24   ──► SOCKS5 代理 C
+├── docker network: live-api-eg-02   10.213.2.0/24   ──► SOCKS5 代理 B
+├── docker network: live-api-eg-03   10.213.3.0/24   ──► SOCKS5 代理 C
 │   ...
-└── docker network: skylink-eg-20   10.213.20.0/24  ──► SOCKS5 代理 T
+└── docker network: live-api-eg-20   10.213.20.0/24  ──► SOCKS5 代理 T
 ```
 
 每个槽位的东西是**三件套 + 两个进程**：
 
 | 槽位 | docker network | 网桥 | subnet | 容器 | redsocks | dnsfwd | 代理 |
 |---|---|---|---|---|---|---|---|
-| slot-01 | skylink-eg-01 | skeg01 | 10.213.1.0/24 | claude-slot-01 | :21000 | :21001 | p01 |
-| slot-02 | skylink-eg-02 | skeg02 | 10.213.2.0/24 | claude-slot-02 | :21002 | :21003 | p02 |
+| slot-01 | live-api-eg-01 | skeg01 | 10.213.1.0/24 | claude-slot-01 | :21000 | :21001 | p01 |
+| slot-02 | live-api-eg-02 | skeg02 | 10.213.2.0/24 | claude-slot-02 | :21002 | :21003 | p02 |
 | … | … | … | … | … | … | … | … |
-| slot-20 | skylink-eg-20 | skeg20 | 10.213.20.0/24 | claude-slot-20 | :21038 | :21039 | p20 |
+| slot-20 | live-api-eg-20 | skeg20 | 10.213.20.0/24 | claude-slot-20 | :21038 | :21039 | p20 |
 
 完整 20 行由 `node src/egress/cli.mjs plan` 输出；落盘版本见 `/tmp/egress-demo/SUBNETS.md`。
 
@@ -97,15 +97,15 @@ DROP 整个网桥，会连带打死另外 19 个正常运行中的账号。
 
 ### 1.3 容器命名与标签
 
-容器带 `skylink.slot` / `skylink.egress.network` / `skylink.egress.proxy` /
-`skylink.egress.subnet` 四个标签，用来做反向排查：
+容器带 `live-api.slot` / `live-api.egress.network` / `live-api.egress.proxy` /
+`live-api.egress.subnet` 四个标签，用来做反向排查：
 
 ```bash
 # 这个容器绑的是哪个代理？
-docker inspect -f '{{index .Config.Labels "skylink.egress.proxy"}}' claude-slot-07
+docker inspect -f '{{index .Config.Labels "live-api.egress.proxy"}}' claude-slot-07
 
 # 代理 p07 挂错槽位了吗？
-docker ps -q --filter label=skylink.egress.proxy=p07
+docker ps -q --filter label=live-api.egress.proxy=p07
 ```
 
 ---
@@ -285,26 +285,26 @@ glibc 万一回退到 UDP（`use-vc` 没生效、或程序自己直接构造 UDP
 
 | 槽位 | 容器 | docker network | bridge | subnet | 网关 | 容器 IP | tcp | dns | 代理 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| slot-01 | claude-slot-01 | skylink-eg-01 | skeg01 | 10.213.1.0/24 | 10.213.1.1 | 10.213.1.2 | 21000 | 21001 | p01 |
-| slot-02 | claude-slot-02 | skylink-eg-02 | skeg02 | 10.213.2.0/24 | 10.213.2.1 | 10.213.2.2 | 21002 | 21003 | p02 |
-| slot-03 | claude-slot-03 | skylink-eg-03 | skeg03 | 10.213.3.0/24 | 10.213.3.1 | 10.213.3.2 | 21004 | 21005 | p03 |
-| slot-04 | claude-slot-04 | skylink-eg-04 | skeg04 | 10.213.4.0/24 | 10.213.4.1 | 10.213.4.2 | 21006 | 21007 | p04 |
-| slot-05 | claude-slot-05 | skylink-eg-05 | skeg05 | 10.213.5.0/24 | 10.213.5.1 | 10.213.5.2 | 21008 | 21009 | p05 |
-| slot-06 | claude-slot-06 | skylink-eg-06 | skeg06 | 10.213.6.0/24 | 10.213.6.1 | 10.213.6.2 | 21010 | 21011 | p06 |
-| slot-07 | claude-slot-07 | skylink-eg-07 | skeg07 | 10.213.7.0/24 | 10.213.7.1 | 10.213.7.2 | 21012 | 21013 | p07 |
-| slot-08 | claude-slot-08 | skylink-eg-08 | skeg08 | 10.213.8.0/24 | 10.213.8.1 | 10.213.8.2 | 21014 | 21015 | p08 |
-| slot-09 | claude-slot-09 | skylink-eg-09 | skeg09 | 10.213.9.0/24 | 10.213.9.1 | 10.213.9.2 | 21016 | 21017 | p09 |
-| slot-10 | claude-slot-10 | skylink-eg-10 | skeg10 | 10.213.10.0/24 | 10.213.10.1 | 10.213.10.2 | 21018 | 21019 | p10 |
-| slot-11 | claude-slot-11 | skylink-eg-11 | skeg11 | 10.213.11.0/24 | 10.213.11.1 | 10.213.11.2 | 21020 | 21021 | p11 |
-| slot-12 | claude-slot-12 | skylink-eg-12 | skeg12 | 10.213.12.0/24 | 10.213.12.1 | 10.213.12.2 | 21022 | 21023 | p12 |
-| slot-13 | claude-slot-13 | skylink-eg-13 | skeg13 | 10.213.13.0/24 | 10.213.13.1 | 10.213.13.2 | 21024 | 21025 | p13 |
-| slot-14 | claude-slot-14 | skylink-eg-14 | skeg14 | 10.213.14.0/24 | 10.213.14.1 | 10.213.14.2 | 21026 | 21027 | p14 |
-| slot-15 | claude-slot-15 | skylink-eg-15 | skeg15 | 10.213.15.0/24 | 10.213.15.1 | 10.213.15.2 | 21028 | 21029 | p15 |
-| slot-16 | claude-slot-16 | skylink-eg-16 | skeg16 | 10.213.16.0/24 | 10.213.16.1 | 10.213.16.2 | 21030 | 21031 | p16 |
-| slot-17 | claude-slot-17 | skylink-eg-17 | skeg17 | 10.213.17.0/24 | 10.213.17.1 | 10.213.17.2 | 21032 | 21033 | p17 |
-| slot-18 | claude-slot-18 | skylink-eg-18 | skeg18 | 10.213.18.0/24 | 10.213.18.1 | 10.213.18.2 | 21034 | 21035 | p18 |
-| slot-19 | claude-slot-19 | skylink-eg-19 | skeg19 | 10.213.19.0/24 | 10.213.19.1 | 10.213.19.2 | 21036 | 21037 | p19 |
-| slot-20 | claude-slot-20 | skylink-eg-20 | skeg20 | 10.213.20.0/24 | 10.213.20.1 | 10.213.20.2 | 21038 | 21039 | p20 |
+| slot-01 | claude-slot-01 | live-api-eg-01 | skeg01 | 10.213.1.0/24 | 10.213.1.1 | 10.213.1.2 | 21000 | 21001 | p01 |
+| slot-02 | claude-slot-02 | live-api-eg-02 | skeg02 | 10.213.2.0/24 | 10.213.2.1 | 10.213.2.2 | 21002 | 21003 | p02 |
+| slot-03 | claude-slot-03 | live-api-eg-03 | skeg03 | 10.213.3.0/24 | 10.213.3.1 | 10.213.3.2 | 21004 | 21005 | p03 |
+| slot-04 | claude-slot-04 | live-api-eg-04 | skeg04 | 10.213.4.0/24 | 10.213.4.1 | 10.213.4.2 | 21006 | 21007 | p04 |
+| slot-05 | claude-slot-05 | live-api-eg-05 | skeg05 | 10.213.5.0/24 | 10.213.5.1 | 10.213.5.2 | 21008 | 21009 | p05 |
+| slot-06 | claude-slot-06 | live-api-eg-06 | skeg06 | 10.213.6.0/24 | 10.213.6.1 | 10.213.6.2 | 21010 | 21011 | p06 |
+| slot-07 | claude-slot-07 | live-api-eg-07 | skeg07 | 10.213.7.0/24 | 10.213.7.1 | 10.213.7.2 | 21012 | 21013 | p07 |
+| slot-08 | claude-slot-08 | live-api-eg-08 | skeg08 | 10.213.8.0/24 | 10.213.8.1 | 10.213.8.2 | 21014 | 21015 | p08 |
+| slot-09 | claude-slot-09 | live-api-eg-09 | skeg09 | 10.213.9.0/24 | 10.213.9.1 | 10.213.9.2 | 21016 | 21017 | p09 |
+| slot-10 | claude-slot-10 | live-api-eg-10 | skeg10 | 10.213.10.0/24 | 10.213.10.1 | 10.213.10.2 | 21018 | 21019 | p10 |
+| slot-11 | claude-slot-11 | live-api-eg-11 | skeg11 | 10.213.11.0/24 | 10.213.11.1 | 10.213.11.2 | 21020 | 21021 | p11 |
+| slot-12 | claude-slot-12 | live-api-eg-12 | skeg12 | 10.213.12.0/24 | 10.213.12.1 | 10.213.12.2 | 21022 | 21023 | p12 |
+| slot-13 | claude-slot-13 | live-api-eg-13 | skeg13 | 10.213.13.0/24 | 10.213.13.1 | 10.213.13.2 | 21024 | 21025 | p13 |
+| slot-14 | claude-slot-14 | live-api-eg-14 | skeg14 | 10.213.14.0/24 | 10.213.14.1 | 10.213.14.2 | 21026 | 21027 | p14 |
+| slot-15 | claude-slot-15 | live-api-eg-15 | skeg15 | 10.213.15.0/24 | 10.213.15.1 | 10.213.15.2 | 21028 | 21029 | p15 |
+| slot-16 | claude-slot-16 | live-api-eg-16 | skeg16 | 10.213.16.0/24 | 10.213.16.1 | 10.213.16.2 | 21030 | 21031 | p16 |
+| slot-17 | claude-slot-17 | live-api-eg-17 | skeg17 | 10.213.17.0/24 | 10.213.17.1 | 10.213.17.2 | 21032 | 21033 | p17 |
+| slot-18 | claude-slot-18 | live-api-eg-18 | skeg18 | 10.213.18.0/24 | 10.213.18.1 | 10.213.18.2 | 21034 | 21035 | p18 |
+| slot-19 | claude-slot-19 | live-api-eg-19 | skeg19 | 10.213.19.0/24 | 10.213.19.1 | 10.213.19.2 | 21036 | 21037 | p19 |
+| slot-20 | claude-slot-20 | live-api-eg-20 | skeg20 | 10.213.20.0/24 | 10.213.20.1 | 10.213.20.2 | 21038 | 21039 | p20 |
 
 ### 4.3 部署前先查这台机器上已有什么
 
@@ -348,8 +348,8 @@ docker network create \
   --opt com.docker.network.bridge.enable_ip_masquerade=false \
   --opt com.docker.network.bridge.enable_icc=true \
   --opt com.docker.network.enable_ipv6=false \
-  --label skylink.egress.slot=slot-01 \
-  skylink-eg-01
+  --label live-api.egress.slot=slot-01 \
+  live-api-eg-01
 ```
 
 `enable_ip_masquerade=false` 是整条链路的前提，不是可选优化：
@@ -359,7 +359,7 @@ nat PREROUTING 里就看不到原始目的地址，REDIRECT 失去依据。
 
 ### 5.2 转发器配置
 
-`/etc/skylink-egress/skylink-eg-01.redsocks.conf`（0600，含明文凭据）：
+`/etc/live-api-egress/live-api-eg-01.redsocks.conf`（0600，含明文凭据）：
 
 ```ini
 // 由 src/egress/network.mjs 生成；改 config/proxies.json 后重新生成，勿手改
@@ -385,7 +385,7 @@ redsocks {
 启动：
 
 ```bash
-redsocks -c /etc/skylink-egress/skylink-eg-01.redsocks.conf
+redsocks -c /etc/live-api-egress/live-api-eg-01.redsocks.conf
 ```
 
 监听地址是网桥网关，既不是 `0.0.0.0` 也不是 `127.0.0.1`：
@@ -413,7 +413,7 @@ import('./src/egress/dnsfwd.mjs').then(async (m) => {
 
 ### 5.3 iptables 规则
 
-`/tmp/egress-demo/slots/slot-01/iptables/skylink-eg-01.up.sh`：
+`/tmp/egress-demo/slots/slot-01/iptables/live-api-eg-01.up.sh`：
 
 ```sh
 #!/bin/sh
@@ -443,7 +443,7 @@ if ! iptables -t filter -C FORWARD -i skeg01 ! -o skeg01 -j DROP 2>/dev/null; th
 `-C` + `-I` 的配对是为了幂等：`up.sh` 可以反复执行，
 已在位的规则不会被插重复（重复插入会让 `down.sh` 删不干净）。
 
-回滚用 `skylink-eg-01.down.sh`，顺序是先删 PREROUTING 跳转再 `-F`/`-X` 链，
+回滚用 `live-api-eg-01.down.sh`，顺序是先删 PREROUTING 跳转再 `-F`/`-X` 链，
 否则链仍被引用时 `-X` 会失败。
 
 ### 5.4 启动容器
@@ -452,7 +452,7 @@ if ! iptables -t filter -C FORWARD -i skeg01 ! -o skeg01 -j DROP 2>/dev/null; th
 docker run -d \
   --name claude-slot-01 \
   --hostname claude-slot-01 \
-  --network skylink-eg-01 \
+  --network live-api-eg-01 \
   --dns 8.8.8.8 \
   --dns 1.1.1.1 \
   --dns-opt use-vc \
@@ -460,12 +460,12 @@ docker run -d \
   --pids-limit 256 \
   --cap-drop ALL \
   --security-opt no-new-privileges \
-  --label skylink.slot=slot-01 \
-  --label skylink.egress.network=skylink-eg-01 \
-  --label skylink.egress.proxy=p01 \
-  --label skylink.egress.subnet=10.213.1.0/24 \
+  --label live-api.slot=slot-01 \
+  --label live-api.egress.network=live-api-eg-01 \
+  --label live-api.egress.proxy=p01 \
+  --label live-api.egress.subnet=10.213.1.0/24 \
   --ip 10.213.1.2 \
-  skylink/claude-slot:latest
+  live-api/claude-slot:latest
 ```
 
 注意这里**没有** `-e HTTPS_PROXY`。这是刻意的，理由见 §2。
@@ -650,7 +650,7 @@ node src/egress/cli.mjs verify-config
 node src/egress/cli.mjs plan
 
 # 4. 生成全部产物（网络参数 / iptables 脚本 / 转发器配置）
-node src/egress/cli.mjs emit --out /etc/skylink-egress
+node src/egress/cli.mjs emit --out /etc/live-api-egress
 # 102 个文件：fleet.json + SUBNETS.md + 20 × (blueprint.json + 2 脚本 + 2 配置文件)
 
 # 5. 真实探测代理健康（这一步会联网，需先替换占位符）

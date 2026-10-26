@@ -780,7 +780,7 @@ export function planKvmSlots({ slots, rootDir = '/var/lib/persona-kvm', rules = 
 export function buildKernelBootstrap({
   kernelSource,
   credentialJson = null,
-  socketPath = '/run/skylink/api-kernel.sock',
+  socketPath = '/run/live-api/api-kernel.sock',
   token = '',
   slots = 20,
   offline = false,
@@ -795,17 +795,17 @@ export function buildKernelBootstrap({
     provider: 'local_cli',
     slots_per_worker: slots,
   }
-  if (credentialJson) config.codex_credential_path = '/etc/skylink/codex-credentials.json'
+  if (credentialJson) config.codex_credential_path = '/etc/live-api/codex-credentials.json'
 
   files.push({
-    path: '/etc/skylink/kernel.json',
+    path: '/etc/live-api/kernel.json',
     mode: '0600',
     content: JSON.stringify(config, null, 2) + '\n',
   })
 
   if (credentialJson) {
     files.push({
-      path: '/etc/skylink/codex-credentials.json',
+      path: '/etc/live-api/codex-credentials.json',
       mode: '0600',
       content: typeof credentialJson === 'string' ? credentialJson : JSON.stringify(credentialJson, null, 2) + '\n',
     })
@@ -814,7 +814,7 @@ export function buildKernelBootstrap({
   // systemd 单元：Restart=always 是必须的 —— 内核崩了没人拉起来，
   // 整个槽位就静默失效了，而面板上看着还是"运行中"。
   files.push({
-    path: '/etc/systemd/system/skylink-kernel.service',
+    path: '/etc/systemd/system/live-api-kernel.service',
     mode: '0644',
     content: [
       '[Unit]',
@@ -824,7 +824,7 @@ export function buildKernelBootstrap({
       '',
       '[Service]',
       'Type=simple',
-      'ExecStart=/usr/bin/node /opt/skylink/src/kernel/server.mjs -config /etc/skylink/kernel.json',
+      'ExecStart=/usr/bin/node /opt/live-api/src/kernel/server.mjs -config /etc/live-api/kernel.json',
       'Restart=always',
       'RestartSec=3',
       'LimitNOFILE=65535',
@@ -838,8 +838,8 @@ export function buildKernelBootstrap({
   if (offline && kernelSource) {
     // 离线：把源码写进 files。调用方负责保证 src/ 整棵树都在
     // （内核 import 了同目录的其他模块，单文件不够）。
-    commands.push(['mkdir', '-p', '/opt/skylink'])
-    commands.push(['tar', '-xzf', '/etc/skylink/src.tar.gz', '-C', '/opt/skylink'])
+    commands.push(['mkdir', '-p', '/opt/live-api'])
+    commands.push(['tar', '-xzf', '/etc/live-api/src.tar.gz', '-C', '/opt/live-api'])
   } else {
     // 联网：装 node，代码由调用方另行分发（git clone / scp / 对象存储）
     commands.push(['bash', '-lc', 'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -'])
@@ -847,7 +847,7 @@ export function buildKernelBootstrap({
   }
 
   commands.push(['systemctl', 'daemon-reload'])
-  commands.push(['systemctl', 'enable', '--now', 'skylink-kernel'])
+  commands.push(['systemctl', 'enable', '--now', 'live-api-kernel'])
 
   return { files, commands }
 }

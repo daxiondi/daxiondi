@@ -540,9 +540,9 @@ const HELP = `用法: node src/runtime/cli.mjs <命令> [选项]
   --limit <n>            dry-run 时显示前 n 个槽位（默认 2，--all 显示全部）
   --all                  down 全部 / dry-run 显示全部槽位
   --slot <slotId>        down / repair / slot 的目标
-  --image <ref>          容器镜像（默认 skylink/claude-slot-cli:latest，含 Claude Code CLI）
-  --data-dir <path>      persona 落盘根目录（默认 /var/lib/skylink-egress）
-  --conf-dir <path>      转发器配置目录（默认 /etc/skylink-egress）
+  --image <ref>          容器镜像（默认 live-api/claude-slot-cli:latest，含 Claude Code CLI）
+  --data-dir <path>      persona 落盘根目录（默认 /var/lib/live-api-egress）
+  --conf-dir <path>      转发器配置目录（默认 /etc/live-api-egress）
   --no-verify            跳过出口与身份验证
   --strict              规划时把未绑定代理判为错误
   --json                 预检输出 JSON

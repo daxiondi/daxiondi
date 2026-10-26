@@ -1,4 +1,4 @@
-obj-m += skylink_uts.o
+obj-m += liveapi_uts.o
 KDIR ?= /lib/modules/$(shell uname -r)/build
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
